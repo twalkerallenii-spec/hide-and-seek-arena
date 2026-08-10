@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>HIDE &amp; SEEK — TWELVE ARENAS</title>
+<meta name="description" content="Twelve hand-built first-person 3D arenas. Explore, collect, and stay out of the Seeker's scan." />
+<meta name="theme-color" content="#07080b" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔦</text></svg>" />
+<link rel="stylesheet" href="./styles/ui.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<!-- ===================== BOOT / LOADING ===================== -->
+<div id="boot" class="screen active">
+  <div class="boot-inner">
+    <div class="boot-mark">
+      <svg viewBox="0 0 120 120" class="boot-eye" aria-hidden="true">
+        <circle class="ring r1" cx="60" cy="60" r="52" />
+        <circle class="ring r2" cx="60" cy="60" r="38" />
+        <circle class="ring r3" cx="60" cy="60" r="24" />
+        <circle class="pupil" cx="60" cy="60" r="9" />
+      </svg>
+    </div>
+    <div class="boot-title">HIDE &amp; SEEK</div>
+    <div class="boot-sub">TWELVE ARENAS</div>
+    <div class="boot-bar"><i id="bootFill"></i></div>
+    <div class="boot-status" id="bootStatus">INITIALISING</div>
+  </div>
+</div>
+
+<!-- ===================== MAIN MENU ===================== -->
+<div id="menu" class="screen">
+  <div class="menu-bg-fade"></div>
+
+  <header class="topbar">
+    <div class="profile">
+      <div class="avatar" id="avatarChip">HS</div>
+      <div class="profile-txt">
+        <div class="pname" id="playerName">OPERATIVE</div>
+        <div class="plevel">
+          <span id="rankLabel">RECRUIT LVL 1</span>
+          <span class="xpbar"><i id="xpFill"></i></span>
+        </div>
+      </div>
+    </div>
+    <div class="currency">
+      <div class="coinchip"><span class="coin-ico"></span><span id="coinCount">0</span></div>
+      <div class="coinchip alt"><span class="found-ico"></span><span id="pupCount">0</span><span class="of">/12</span></div>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="play">PLAY</button>
+    <button class="tab" data-tab="locker">LOCKER</button>
+    <button class="tab" data-tab="store">STORE</button>
+    <button class="tab" data-tab="extras">EXTRAS</button>
+  </nav>
+
+  <main class="panel">
+    <!-- PLAY ------------------------------------------------- -->
+    <section class="tabpage active" id="page-play">
+      <div class="page-head">
+        <h2>SELECT ARENA</h2>
+        <div class="mutators" id="mutatorStrip"></div>
+      </div>
+      <div class="arena-grid" id="arenaGrid"></div>
+    </section>
+
+    <!-- LOCKER ----------------------------------------------- -->
+    <section class="tabpage" id="page-locker">
+      <div class="page-head"><h2>LOCKER</h2><p class="hint">Equip a signature. Changes your light, your HUD and the trace you leave behind.</p></div>
+      <div class="skin-grid" id="skinGrid"></div>
+    </section>
+
+    <!-- STORE ------------------------------------------------ -->
+    <section class="tabpage" id="page-store">
+      <div class="page-head"><h2>STORE</h2><p class="hint">Coins are found in the arenas. Every purchase is permanent.</p></div>
+      <div class="store-cols">
+        <div>
+          <h3 class="colhead">SIGNATURES</h3>
+          <div class="store-grid" id="storeSkins"></div>
+        </div>
+        <div>
+          <h3 class="colhead">UPGRADES</h3>
+          <div class="store-grid" id="storeUpgrades"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXTRAS ----------------------------------------------- -->
+    <section class="tabpage" id="page-extras">
+      <div class="page-head"><h2>EXTRAS</h2></div>
+      <div class="extras-grid">
+        <div class="card wide">
+          <h3>SETTINGS</h3>
+          <label class="row"><span>GRAPHICS</span>
+            <select id="setQuality"><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high" selected>HIGH</option><option value="ultra">ULTRA</option></select>
+          </label>
+          <label class="row"><span>SENSITIVITY</span><input id="setSens" type="range" min="20" max="400" value="100" /><b id="setSensVal">1.00</b></label>
+          <label class="row"><span>FIELD OF VIEW</span><input id="setFov" type="range" min="60" max="110" value="75" /><b id="setFovVal">75</b></label>
+          <label class="row"><span>MASTER VOLUME</span><input id="setVolMaster" type="range" min="0" max="100" value="80" /><b id="setVolMasterVal">80</b></label>
+          <label class="row"><span>MUSIC</span><input id="setVolMusic" type="range" min="0" max="100" value="50" /><b id="setVolMusicVal">50</b></label>
+          <label class="row"><span>INVERT Y</span><input id="setInvert" type="checkbox" /></label>
+          <label class="row"><span>MOTION BLUR / GRAIN</span><input id="setGrain" type="checkbox" checked /></label>
+        </div>
+        <div class="card">
+          <h3>CONTROLS</h3>
+          <ul class="keys">
+            <li><kbd>W A S D</kbd> Move</li>
+            <li><kbd>Shift</kbd> Sprint</li>
+            <li><kbd>Ctrl</kbd> / <kbd>C</kbd> Crouch</li>
+            <li><kbd>Space</kbd> Jump</li>
+            <li><kbd>F</kbd> Flashlight</li>
+            <li><kbd>Q</kbd> Use power-up</li>
+            <li><kbd>Tab</kbd> Scan (hold)</li>
+            <li><kbd>V</kbd> Free camera</li>
+            <li><kbd>M</kbd> Map</li>
+            <li><kbd>Esc</kbd> Pause</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>THE PUP</h3>
+          <p class="hint">One small dog is hidden in every single arena. Find all twelve.</p>
+          <div class="pupboard" id="pupBoard"></div>
+        </div>
+        <div class="card wide">
+          <h3>CREDITS</h3>
+          <button class="btn ghost" id="btnCredits">ROLL CREDITS</button>
+          <button class="btn ghost danger" id="btnWipe">ERASE ALL PROGRESS</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="menu-foot">
+    <div class="build">BUILD 1.0 · TWELVE ARENAS</div>
+    <button class="btn play" id="btnPlay">PLAY</button>
+  </footer>
+</div>
+
+<!-- ===================== LOADING ARENA ===================== -->
+<div id="loading" class="screen">
+  <div class="load-inner">
+    <div class="load-tag" id="loadTag">ARENA</div>
+    <h1 class="load-title" id="loadTitle">LOADING</h1>
+    <p class="load-sub" id="loadSub"></p>
+    <div class="load-bar"><i id="loadFill"></i></div>
+    <div class="load-tip" id="loadTip"></div>
+  </div>
+</div>
+
+<!-- ===================== IN-GAME HUD ===================== -->
+<div id="hud" class="screen hud">
+  <div class="crosshair" id="crosshair"><i></i><i></i><i></i><i></i></div>
+
+  <div class="hud-tl">
+    <div class="hud-arena" id="hudArena"></div>
+    <div class="hud-timer" id="hudTimer">00:00</div>
+  </div>
+
+  <div class="hud-tr">
+    <div class="hud-stat"><span class="coin-ico"></span><b id="hudCoins">0</b><span class="sub" id="hudCoinsMax">/0</span></div>
+    <div class="hud-stat"><span class="pup-ico"></span><b id="hudPup">—</b></div>
+  </div>
+
+  <div class="hud-bl">
+    <div class="meter stamina"><label>STAMINA</label><div class="mbar"><i id="mStamina"></i></div></div>
+    <div class="meter battery"><label>LIGHT</label><div class="mbar"><i id="mBattery"></i></div></div>
+    <div class="meter fear"><label>FEAR</label><div class="mbar"><i id="mFear"></i></div></div>
+  </div>
+
+  <div class="hud-br">
+    <div class="powerslot empty" id="powerSlot">
+      <div class="pico" id="powerIcon"></div>
+      <div class="ptxt"><b id="powerName">NO POWER-UP</b><span id="powerHint">Find one in the arena</span></div>
+      <kbd>Q</kbd>
+    </div>
+  </div>
+
+  <div class="hud-bc">
+    <div class="hint-line" id="hintLine"></div>
+  </div>
+
+  <div class="scanwave" id="scanwave"></div>
+  <div class="spotted" id="spottedOverlay"><span>SPOTTED</span></div>
+  <div class="toasts" id="toasts"></div>
+  <div class="vignette-fear" id="fearVignette"></div>
+  <canvas class="minimap" id="minimap" width="260" height="260"></canvas>
+</div>
+
+<!-- ===================== PAUSE ===================== -->
+<div id="pause" class="screen modal">
+  <div class="modal-box">
+    <h2>PAUSED</h2>
+    <div class="pausestats" id="pauseStats"></div>
+    <button class="btn play" id="btnResume">RESUME</button>
+    <button class="btn ghost" id="btnRestart">RESTART ARENA</button>
+    <button class="btn ghost" id="btnQuit">RETURN TO MENU</button>
+  </div>
+</div>
+
+<!-- ===================== RESULTS ===================== -->
+<div id="results" class="screen modal">
+  <div class="modal-box wide">
+    <div class="res-tag" id="resTag">ARENA CLEARED</div>
+    <h2 id="resTitle">COMPLETE</h2>
+    <div class="res-rows" id="resRows"></div>
+    <div class="res-actions">
+      <button class="btn play" id="btnNextArena">NEXT ARENA</button>
+      <button class="btn ghost" id="btnResMenu">MENU</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== CREDITS ===================== -->
+<div id="credits" class="screen">
+  <div class="credit-scroll" id="creditScroll"></div>
+  <button class="btn ghost credit-skip" id="btnCreditSkip">SKIP</button>
+</div>
+
+<div id="rotate-warn">Rotate your device or use a wider window.</div>
+<noscript><div class="noscript">This game needs JavaScript and WebGL 2.</div></noscript>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
