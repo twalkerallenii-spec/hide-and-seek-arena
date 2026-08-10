@@ -77,6 +77,7 @@ export async function build(ctx) {
     asphalt: MAT.surface('asphalt', { color: 0x2b2d30, repeat: 18 }),
     marble: MAT.surface('marble', { color: 0xc7bac0, vein: 0x6a5e6c, repeat: 2, size: 256 }),
     wood: MAT.surface('wood', { color: 0x6a4a2c, repeat: 2, size: 256 }),
+    panelDark: MAT.surface('metalPanel', { color: 0x2c3037, panels: 3, repeat: 1, size: 256 }),
   };
 
   const S = {
@@ -99,19 +100,17 @@ export async function build(ctx) {
     trunk: MAT.solid({ color: 0x493a2b, roughness: 0.95 }),
     soil: MAT.solid({ color: 0x2a231c, roughness: 1 }),
     card: MAT.solid({ color: 0x8a7050, roughness: 0.95 }),
+    dirtWhite: MAT.solid({ color: 0xb8b2a4, roughness: 0.9 }),
     tarp: MAT.solid({ color: 0x2f3a3a, roughness: 0.9 }),
   };
 
   const E = {
-    warm: MAT.emissive(0xffb15c, 2.2),
     warmSoft: MAT.emissive(0xffc98a, 1.1),
-    cold: MAT.emissive(0xcfe4ff, 2.4),
     tube: MAT.emissive(0xe6f2ff, 3.0),
     tubeDead: MAT.solid({ color: 0x2b2d33, roughness: 0.35 }),
     neonPink: MAT.emissive(0xff5aa0, 3.2),
     neonTeal: MAT.emissive(0x49efd6, 3.0),
     exit: MAT.emissive(0x37d268, 2.6),
-    menu: MAT.emissive(0xffd9a0, 1.9),
     sodium: MAT.emissive(0xffa244, 3.2),
     crtDead: MAT.solid({ color: 0x14161a, roughness: 0.25, metalness: 0.1 }),
   };
@@ -217,16 +216,28 @@ export async function build(ctx) {
     return b;
   }
 
-  /** Fascia / poster panel from generated text. */
+  /**
+   * Fascia / poster panel from generated text. textMaterial() is not cached by
+   * the engine — every call builds a canvas, a texture and a material — so we
+   * memoise on the exact arguments. Repeated signage ('CLOSED FOR GOOD', the
+   * poster set, unit-to-let boards) then costs one material, not one per copy.
+   */
+  const textCache = new Map();
   function textPanel(g, text, x, y, z, ry, h, o = {}) {
-    const t = MAT.textMaterial(text, {
-      color: o.color ?? 0xf2e8d8,
-      background: o.bg,
-      fontSize: o.fontSize ?? 84,
-      emissive: o.emissive,
-      emissiveIntensity: o.ei ?? 1.5,
-      stroke: o.stroke,
-    });
+    const key = text + '|' + (o.color ?? 0) + '|' + (o.bg ?? 'x') + '|' + (o.fontSize ?? 84)
+      + '|' + (o.emissive ?? 'x') + '|' + (o.ei ?? 1.5) + '|' + (o.stroke ?? 'x');
+    let t = textCache.get(key);
+    if (!t) {
+      t = MAT.textMaterial(text, {
+        color: o.color ?? 0xf2e8d8,
+        background: o.bg,
+        fontSize: o.fontSize ?? 84,
+        emissive: o.emissive,
+        emissiveIntensity: o.ei ?? 1.5,
+        stroke: o.stroke,
+      });
+      textCache.set(key, t);
+    }
     const w = h * t.aspect;
     const p = P.boxC(w, h, 0.06, t.material, { collide: false, shadow: false });
     p.position.set(x, y, z);
@@ -658,6 +669,41 @@ export async function build(ctx) {
 
   const SHOP_DEPTH = 12;
 
+  // Shelving with books blocked in rather than modelled spine by spine.
+  // props.bookshelf() mints a fresh material per book (~1000 of them across
+  // five racks), which three.js cannot batch — four shared colours read the
+  // same at 2 m and collapse into four draw calls after freeze().
+  const bookMats = [0x7a3a3a, 0x2f4a5e, 0x6b5a2e, 0x4a3a52]
+    .map(c => MAT.solid({ color: c, roughness: 0.88 }));
+  const BK_RUN = [0.18, 0.26, 0.34, 0.44], BK_H = [0.18, 0.22, 0.27];
+  function shelving(w2, h2, d2, sd) {
+    const r2 = ctx.rng.fork('shelf' + sd);
+    const gg = new THREE.Group();
+    const back = P.boxC(w2, h2, 0.04, M.wood, { collide: false });
+    back.position.set(0, h2 / 2, -d2 / 2); gg.add(back);
+    for (const sx of [-1, 1]) {
+      const side = P.boxC(0.05, h2, d2, M.wood, { collide: false });
+      side.position.set(sx * w2 / 2, h2 / 2, 0); gg.add(side);
+    }
+    for (let i = 0; i <= 4; i++) {
+      const y = (i / 4) * h2;
+      const sh = P.boxC(w2, 0.04, d2, M.wood, { collide: false });
+      sh.position.set(0, y, 0); gg.add(sh);
+      if (i === 4) break;
+      let x2 = -w2 / 2 + 0.06;
+      while (x2 < w2 / 2 - 0.24) {
+        if (r2.chance(0.2)) { x2 += r2.range(0.1, 0.3); continue; }   // gaps where stock walked
+        const run = r2.pick(BK_RUN), bh = r2.pick(BK_H);
+        const blk = P.boxC(run, bh, d2 * 0.7, r2.pick(bookMats), { collide: false, shadow: false });
+        blk.position.set(x2 + run / 2, y + bh / 2 + 0.02, 0);
+        blk.rotation.z = r2.chance(0.07) ? r2.range(0.12, 0.3) : 0;
+        gg.add(blk);
+        x2 += run + 0.02;
+      }
+    }
+    return gg;
+  }
+
   function buildStore(bay, band) {
     const { x: cx, w, kind, name, seed } = bay;
     const { line, facing, floorY, openH, bulkTop } = band;
@@ -809,12 +855,12 @@ export async function build(ctx) {
       bx(g, 1.1, 0.5, 0.35, cx + w * 0.3, floorY + 0.7, zi(2.2), S.plastic, 0.2);
       cy(g, 0.06, 0.7, cx + w * 0.3, floorY + 0.35, zi(2.2), S.steel, 8);
     } else if (kind === 'books') {
-      const tipped = P.bookshelf(2.6, 2.1, 0.34, seed);
+      const tipped = shelving(2.6, 2.1, 0.34, seed);
       tipped.position.set(cx - w * 0.2, floorY + 0.1, zi(4.0));
       tipped.rotation.z = -1.42; tipped.rotation.y = 0.25;
       P.NOCOLLIDE(tipped); g.add(tipped);
       for (let i = 0; i < 4; i++) {
-        const sh = P.bookshelf(2.4, 2.1, 0.34, seed + i * 7);
+        const sh = shelving(2.4, 2.1, 0.34, seed + i * 7);
         sh.position.set(cx + r.range(-w * 0.4, w * 0.4), floorY, zi(r.range(6, 11)));
         sh.rotation.y = r.chance(0.5) ? Math.PI / 2 : 0;
         P.NOCOLLIDE(sh); g.add(sh);
@@ -1070,11 +1116,21 @@ export async function build(ctx) {
   {
     const cxs = 20, czs = 0, hw = 3.0, hd = 3.0, top = 13.2;
     for (const [ox, oz, w2, d2] of [
-      [0, -hd, hw * 2, 0.18], [0, hd, hw * 2, 0.18], [hw, 0, 0.18, hd * 2],
+      [0, -hd, hw * 2, 0.18], [hw, 0, 0.18, hd * 2],
     ]) {
       bx(A, w2, top, d2, cxs + ox, top / 2, czs + oz, S.glass);
       col(w2, top, Math.max(d2, 0.2), cxs + ox, top / 2, czs + oz);
     }
+    // south face: glazed except for a maintenance hatch at the upper level, so
+    // the service ladder inside the shaft is a real route up to the balcony
+    for (const [gx0, gx1, gy0, gy1] of [
+      [17, 20.6, 0, top], [22.6, 23, 0, top],
+      [20.6, 22.6, 0, Y_UPP], [20.6, 22.6, Y_UPP + 2.2, top],
+    ]) {
+      bx(A, gx1 - gx0, gy1 - gy0, 0.18, (gx0 + gx1) / 2, (gy0 + gy1) / 2, czs + hd, S.glass);
+      col(gx1 - gx0, gy1 - gy0, 0.22, (gx0 + gx1) / 2, (gy0 + gy1) / 2, czs + hd);
+    }
+    bx(A, 2.2, 0.14, 0.3, 21.6, Y_UPP + 2.28, czs + hd, S.brassDull, 0, false);
     // atrium face: glazed above a doorway you can step through on the lower floor
     bx(A, 0.18, top - 2.3, hd * 2, cxs - hw, 2.3 + (top - 2.3) / 2, czs, S.glass);
     col(0.25, top - 2.3, hd * 2, cxs - hw, 2.3 + (top - 2.3) / 2, czs);
@@ -1090,14 +1146,17 @@ export async function build(ctx) {
     }
     // the car, dead on the ground floor
     quad(M.tNavy, cxs - hw + 0.2, czs - hd + 0.2, cxs + hw - 0.2, czs + hd - 0.2, 0.02);
-    bx(A, hw * 2 - 0.4, 0.05, hd * 2 - 0.4, cxs, 2.28, czs, M.panelDark, 0, false);
+    // the car roof is long gone — only the ceiling fitting and its rails remain
+    bx(A, 4.6, 0.06, 0.14, cxs, 2.28, czs - 1.4, M.panelDark, 0, false);
+    bx(A, 4.6, 0.06, 0.14, cxs, 2.28, czs + 1.4, M.panelDark, 0, false);
     bx(A, 1.4, 0.06, 0.2, cxs, 2.2, czs, E.tubeDead, 0, false);
     bx(A, 0.35, 1.1, 0.08, cxs + hw - 0.5, 1.3, czs - hd + 0.4, S.brassDull, 0, false);
-    // service ladder pinned to the back of the shaft
-    const lad = P.ladder(top - 2.4, S.steelDark);
-    lad.position.set(cxs + hw - 0.4, 2.4, czs);
+    // service ladder, floor to headhouse — kept out of the frozen bucket so the
+    // engine still sees userData.climbable and turns it into a real climb zone
+    const lad = P.ladder(top - 0.4, S.steelDark);
+    lad.position.set(cxs + hw - 0.45, 0.05, czs);
     lad.rotation.y = Math.PI / 2;
-    P.NOCOLLIDE(lad); A.add(lad);
+    P.NOCOLLIDE(lad); LIVE.add(lad);
     slab(cxs - hw, czs - hd, cxs + hw, czs + hd, 0.02, 0.4);
     ctx.hidingSpot(cxs, 0, czs, 2.2, 1.0);
   }

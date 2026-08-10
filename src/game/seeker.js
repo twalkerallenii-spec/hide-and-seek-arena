@@ -37,6 +37,9 @@ export class Seeker {
     this.ghosted = false;       // GHOST power-up
     this.stealth = 0;           // 0..1 from skin / SOFT SOLES
     this.decoy = null;
+    this.verticalBand = 4.0;    // metres of height the sweep covers for free
+    this.verticalFalloff = 9.0; // ...then it fades out over this much more
+
 
     this.fear = 0;              // 0..100
     this.fearRate = 1.0;
@@ -65,6 +68,11 @@ export class Seeker {
     this.fear = 0;
     this.spottedCount = 0;
     this.suspicion = 0.25;
+    this._t = 0;
+    this.lastSpotted = -99;
+    this.paused = false;
+    this.ghosted = false;
+    this.decoy = null;
     this.clearRings();
   }
 
@@ -116,11 +124,14 @@ export class Seeker {
 
     // --- where does it think you are? ---------------------------------------
     // Noise makes it hunt loosely; sprinting, lights and open ground sharpen it.
+    const { silenced = false } = opts;
     let exposure = 0.18;
     if (moving) exposure += 0.14;
     if (sprinting) exposure += 0.42;
     if (lightOn) exposure += 0.30;
     if (crouching) exposure -= 0.18;
+    // SILENCE removes the noise you make; it cannot hide your light.
+    if (silenced) exposure = Math.min(exposure, 0.18 + (lightOn ? 0.30 : 0)) * 0.45;
     exposure *= (1 - this.stealth);
     exposure = Math.max(0, exposure);
 
@@ -164,8 +175,18 @@ export class Seeker {
         const band = 1.6 + this.ringSpeed * dt;
         if (Math.abs(d - r.radius) < band) {
           r.hit = true;
-          if (!conceal && !this.ghosted) this._spot(d);
-          else this.fear = Math.min(100, this.fear + 6);   // near miss still rattles you
+          // The ring is a horizontal wave, so height is real cover: it loses
+          // grip on you the further you are above or below the plane it was
+          // cast on. Vertical arenas would be pointless otherwise.
+          const dy = Math.abs(player.y - r.mesh.position.y);
+          const grip = 1 - Math.min(1, Math.max(0, dy - this.verticalBand) / this.verticalFalloff);
+          if (grip <= 0) {
+            this.fear = Math.min(100, this.fear + 2);      // heard it pass, far below
+          } else if (!conceal && !this.ghosted && grip > 0.35) {
+            this._spot(d);
+          } else {
+            this.fear = Math.min(100, this.fear + 6 * grip);  // near miss still rattles you
+          }
         }
       }
 

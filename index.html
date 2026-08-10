@@ -60,46 +60,46 @@
     </div>
   </header>
 
-  <nav class="tabs" id="tabs">
-    <button class="tab active" data-tab="play">PLAY</button>
-    <button class="tab" data-tab="locker">LOCKER</button>
-    <button class="tab" data-tab="store">STORE</button>
-    <button class="tab" data-tab="extras">EXTRAS</button>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Menu sections">
+    <button class="tab active" type="button" data-tab="play"   id="tab-play"   role="tab" aria-selected="true"  aria-controls="page-play">PLAY</button>
+    <button class="tab"        type="button" data-tab="locker" id="tab-locker" role="tab" aria-selected="false" aria-controls="page-locker">LOCKER</button>
+    <button class="tab"        type="button" data-tab="store"  id="tab-store"  role="tab" aria-selected="false" aria-controls="page-store">STORE</button>
+    <button class="tab"        type="button" data-tab="extras" id="tab-extras" role="tab" aria-selected="false" aria-controls="page-extras">EXTRAS</button>
   </nav>
 
   <main class="panel">
     <!-- PLAY ------------------------------------------------- -->
-    <section class="tabpage active" id="page-play">
+    <section class="tabpage active" id="page-play" role="tabpanel" aria-labelledby="tab-play">
       <div class="page-head">
-        <h2>SELECT ARENA</h2>
-        <div class="mutators" id="mutatorStrip"></div>
+        <h2 id="arenaGridLabel">SELECT ARENA</h2>
+        <div class="mutators" id="mutatorStrip" role="group" aria-label="Run mutators"></div>
       </div>
-      <div class="arena-grid" id="arenaGrid"></div>
+      <div class="arena-grid" id="arenaGrid" role="listbox" aria-labelledby="arenaGridLabel"></div>
     </section>
 
     <!-- LOCKER ----------------------------------------------- -->
-    <section class="tabpage" id="page-locker">
+    <section class="tabpage" id="page-locker" role="tabpanel" aria-labelledby="tab-locker">
       <div class="page-head"><h2>LOCKER</h2><p class="hint">Equip a signature. Changes your light, your HUD and the trace you leave behind.</p></div>
       <div class="skin-grid" id="skinGrid"></div>
     </section>
 
     <!-- STORE ------------------------------------------------ -->
-    <section class="tabpage" id="page-store">
+    <section class="tabpage" id="page-store" role="tabpanel" aria-labelledby="tab-store">
       <div class="page-head"><h2>STORE</h2><p class="hint">Coins are found in the arenas. Every purchase is permanent.</p></div>
       <div class="store-cols">
         <div>
-          <h3 class="colhead">SIGNATURES</h3>
-          <div class="store-grid" id="storeSkins"></div>
+          <h3 class="colhead" id="storeSkinsLabel">SIGNATURES</h3>
+          <div class="store-grid" id="storeSkins" role="list" aria-labelledby="storeSkinsLabel"></div>
         </div>
         <div>
-          <h3 class="colhead">UPGRADES</h3>
-          <div class="store-grid" id="storeUpgrades"></div>
+          <h3 class="colhead" id="storeUpgradesLabel">UPGRADES</h3>
+          <div class="store-grid" id="storeUpgrades" role="list" aria-labelledby="storeUpgradesLabel"></div>
         </div>
       </div>
     </section>
 
     <!-- EXTRAS ----------------------------------------------- -->
-    <section class="tabpage" id="page-extras">
+    <section class="tabpage" id="page-extras" role="tabpanel" aria-labelledby="tab-extras">
       <div class="page-head"><h2>EXTRAS</h2></div>
       <div class="extras-grid">
         <div class="card wide">
@@ -107,10 +107,11 @@
           <label class="row"><span>GRAPHICS</span>
             <select id="setQuality"><option value="low">LOW</option><option value="medium">MEDIUM</option><option value="high" selected>HIGH</option><option value="ultra">ULTRA</option></select>
           </label>
-          <label class="row"><span>SENSITIVITY</span><input id="setSens" type="range" min="20" max="400" value="100" /><b id="setSensVal">1.00</b></label>
-          <label class="row"><span>FIELD OF VIEW</span><input id="setFov" type="range" min="60" max="110" value="75" /><b id="setFovVal">75</b></label>
-          <label class="row"><span>MASTER VOLUME</span><input id="setVolMaster" type="range" min="0" max="100" value="80" /><b id="setVolMasterVal">80</b></label>
-          <label class="row"><span>MUSIC</span><input id="setVolMusic" type="range" min="0" max="100" value="50" /><b id="setVolMusicVal">50</b></label>
+          <label class="row"><span>SENSITIVITY</span><input id="setSens" type="range" min="20" max="400" step="1" value="100" /><b id="setSensVal" aria-hidden="true">1.00</b></label>
+          <label class="row"><span>FIELD OF VIEW</span><input id="setFov" type="range" min="60" max="110" step="1" value="75" /><b id="setFovVal" aria-hidden="true">75</b></label>
+          <label class="row"><span>MASTER VOLUME</span><input id="setVolMaster" type="range" min="0" max="100" step="1" value="80" /><b id="setVolMasterVal" aria-hidden="true">80</b></label>
+          <label class="row"><span>MUSIC</span><input id="setVolMusic" type="range" min="0" max="100" step="1" value="50" /><b id="setVolMusicVal" aria-hidden="true">50</b></label>
+          <label class="row"><span>EFFECTS</span><input id="setVolSfx" type="range" min="0" max="100" step="1" value="90" /><b id="setVolSfxVal" aria-hidden="true">90</b></label>
           <label class="row"><span>INVERT Y</span><input id="setInvert" type="checkbox" /></label>
           <label class="row"><span>MOTION BLUR / GRAIN</span><input id="setGrain" type="checkbox" checked /></label>
         </div>
@@ -130,14 +131,14 @@
           </ul>
         </div>
         <div class="card">
-          <h3>THE PUP</h3>
+          <h3 id="pupBoardLabel">THE PUP</h3>
           <p class="hint">One small dog is hidden in every single arena. Find all twelve.</p>
-          <div class="pupboard" id="pupBoard"></div>
+          <div class="pupboard" id="pupBoard" role="list" aria-labelledby="pupBoardLabel"></div>
         </div>
         <div class="card wide">
           <h3>CREDITS</h3>
-          <button class="btn ghost" id="btnCredits">ROLL CREDITS</button>
-          <button class="btn ghost danger" id="btnWipe">ERASE ALL PROGRESS</button>
+          <button class="btn ghost" type="button" id="btnCredits">ROLL CREDITS</button>
+          <button class="btn ghost danger" type="button" id="btnWipe">ERASE ALL PROGRESS</button>
         </div>
       </div>
     </section>
@@ -145,17 +146,18 @@
 
   <footer class="menu-foot">
     <div class="build">BUILD 1.0 · TWELVE ARENAS</div>
-    <button class="btn play" id="btnPlay">PLAY</button>
+    <button class="btn play" type="button" id="btnPlay">PLAY</button>
   </footer>
 </div>
 
 <!-- ===================== LOADING ARENA ===================== -->
-<div id="loading" class="screen">
+<div id="loading" class="screen" aria-live="polite">
   <div class="load-inner">
     <div class="load-tag" id="loadTag">ARENA</div>
     <h1 class="load-title" id="loadTitle">LOADING</h1>
     <p class="load-sub" id="loadSub"></p>
-    <div class="load-bar"><i id="loadFill"></i></div>
+    <div class="load-bar" id="loadBar" role="progressbar" aria-label="Arena loading"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadFill"></i></div>
     <div class="load-tip" id="loadTip"></div>
   </div>
 </div>

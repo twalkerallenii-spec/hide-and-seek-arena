@@ -96,8 +96,9 @@ class Game {
 
   _wireCallbacks() {
     this.controller.onFootstep = (speed) => {
-      if (this.controller.silenced) return;
       const p = this.controller.position;
+      this._dropTrail(p);
+      if (this.controller.silenced) return;
       audio.footstep(this.world.surfaceAt(p.x, p.z), speed);
     };
     this.controller.onLand = (impact) => audio.land(impact);
@@ -122,6 +123,7 @@ class Game {
 
     this.seeker.onSpotted = () => {
       this.hud.spottedFlash();
+      this._glitchHud();
       this.renderer.setDamage(1);
       this.spottedCount = (this.spottedCount || 0) + 1;
       save.data.stats.spotted++;
@@ -322,6 +324,9 @@ class Game {
     this.powerups.slots = save.hasUpgrade('slot2') ? 2 : 1;
     this._applyUpgrades();
     this.flashlight.applySkin(save.equipped);
+    this._syncAura(save.equipped);
+    this._barkTimer = 0;
+    document.body.classList.remove('hud-glitch');
     this.flashlight.battery = 1;
     this.flashlight.on = false;
     this.flashlight.enabled = !this.mutatorOn('blackout');
@@ -483,6 +488,88 @@ class Game {
   }
 
   // ============================================================== SETTINGS ==
+  // --- signature flourishes ------------------------------------------------
+  /** A soft coloured halo the player carries — the `aura` field on a skin. */
+  _syncAura(skin) {
+    const want = skin.aura || 0;
+    if (want <= 0) {
+      if (this._aura) { this._aura.removeFromParent(); this._aura = null; }
+      return;
+    }
+    if (!this._aura) {
+      this._aura = new THREE.PointLight(0xffffff, 0, 7, 2);
+      this.world.scene.add(this._aura);
+    }
+    this._aura.color.setHex(skin.trail ?? skin.light);
+    this._aura.intensity = want * 2.4;
+    this._aura.distance = 4 + want * 5;
+  }
+
+  /** Fading footprints in the skin's colour — the `trail` field. */
+  _dropTrail(pos) {
+    const skin = save.equipped;
+    if (!skin.aura || !skin.trail) return;
+    if (!this._trailPool) {
+      const geo = new THREE.CircleGeometry(0.20, 10);
+      geo.rotateX(-Math.PI / 2);
+      this._trailPool = [];
+      for (let i = 0; i < 14; i++) {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+          color: skin.trail, transparent: true, opacity: 0, depthWrite: false,
+          blending: THREE.AdditiveBlending, fog: false,
+        }));
+        m.visible = false;
+        m.userData.collide = false;
+        this.world.scene.add(m);
+        this._trailPool.push(m);
+      }
+      this._trailNext = 0;
+    }
+    const m = this._trailPool[this._trailNext = (this._trailNext + 1) % this._trailPool.length];
+    m.material.color.setHex(skin.trail);
+    m.position.set(pos.x, pos.y + 0.02, pos.z);
+    m.visible = true;
+    m.userData.life = 1.6;
+  }
+
+  _updateTrail(dt) {
+    if (!this._trailPool) return;
+    for (const m of this._trailPool) {
+      if (!m.visible) continue;
+      m.userData.life -= dt;
+      if (m.userData.life <= 0) { m.visible = false; continue; }
+      const t = m.userData.life / 1.6;
+      m.material.opacity = t * 0.5 * (save.equipped.aura ?? 0);
+      m.scale.setScalar(1 + (1 - t) * 1.4);
+    }
+  }
+
+  /**
+   * GOOD BOY: the dog you already found twelve of will tell you where this
+   * one is. A bark that gets more frequent the closer you get.
+   */
+  _updatePupSense(dt, playerPos) {
+    if (!save.equipped.pupMode) return;
+    const target = this.pickups.pupTarget();
+    if (!target) return;
+    const d = target.distanceTo(playerPos);
+    if (d > 45) return;
+    this._barkTimer = (this._barkTimer ?? 0) - dt;
+    if (this._barkTimer <= 0) {
+      this._barkTimer = 0.8 + (d / 45) * 6.5;
+      audio.bark();
+      if (d < 12) this.hud.hint('THE PUP IS CLOSE', 1.4);
+    }
+  }
+
+  /** MNEMOSYNE: being seen corrupts your interface for a moment. */
+  _glitchHud() {
+    if (!save.equipped.glitchHud) return;
+    document.body.classList.add('hud-glitch');
+    clearTimeout(this._glitchTimer);
+    this._glitchTimer = setTimeout(() => document.body.classList.remove('hud-glitch'), 900);
+  }
+
   setQuality(q) { this.renderer.setQuality(q); }
   setSensitivity(v) { this.controller.sensitivity = 0.0022 * v; }
   setFov(v) { this.controller.baseFov = v; }
@@ -491,6 +578,7 @@ class Game {
   applySkin(skin) {
     this.flashlight.applySkin(skin);
     this.hud.setAccent(skin.accent);
+    this._syncAura(skin);
     this.seeker.stealth = Math.min(0.85, (skin.stealth || 0) + (save.hasUpgrade('boots') ? 0.3 : 0));
   }
 
@@ -539,6 +627,7 @@ class Game {
         crouching: c.crouching,
         sprinting: c.sprinting,
         moving: hSpeed > 0.6,
+        silenced: !!c.silenced,
         lightOn: this.flashlight.on && this.flashlight.spot.intensity > 0.5,
       });
 
@@ -548,6 +637,10 @@ class Game {
         c.yaw += Math.sin(this.runTime * 7.3) * 0.0009 * panic;
         c.pitch += Math.cos(this.runTime * 5.1) * 0.0007 * panic;
       }
+
+      this._updateTrail(dt);
+      this._updatePupSense(dt, here);
+      if (this._aura) this._aura.position.set(p.x, p.y + 1.1, p.z);
 
       // damage flash decay
       const dmg = Math.max(0, 1 - (this.seeker._t - this.seeker.lastSpotted) / 1.2);
