@@ -7,7 +7,11 @@
   "private": true,
   "scripts": {
     "check": "bash tools/check.sh",
+    "audit": "node tools/audit-arenas.mjs",
+    "uicheck": "node tools/uicheck.mjs",
     "validate": "node tools/validate.mjs",
     "serve": "python3 -m http.server 8080"
-  }
+  },
+  "description": "Twelve first-person 3D arenas in the browser. Every texture, mesh and sound generated at runtime.",
+  "license": "MIT"
 }

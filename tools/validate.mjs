@@ -115,6 +115,10 @@ async function validate(id, world, controller) {
   if (r.scene.lights > 30) r.warnings.push(`${r.scene.lights} lights (budget ~24)`);
   if (r.scene.tris > 6_000_000) r.warnings.push(`${(r.scene.tris / 1e6).toFixed(1)}M triangles`);
   if (r.scene.collideTris > 25_000) r.warnings.push(`${r.scene.collideTris} collidable triangles — octree build may be slow`);
+  // Distinct materials is the best proxy for draw calls we can measure without
+  // a GL context: three cannot batch across materials.
+  if (r.scene.materials > 400) r.warnings.push(`${r.scene.materials} distinct materials — likely ${r.scene.materials}+ draw calls, budget ~900 total`);
+  if (r.scene.textures > 260) r.warnings.push(`${r.scene.textures} distinct textures — VRAM and build time risk`);
 
   // non-finite transforms are a classic silent killer (NaN propagates to all)
   let bad = 0;

@@ -127,10 +127,58 @@ machine and every reload.
 
 ## Development
 
+There is no build step. The browser loads the ES modules directly and pulls
+three.js from a CDN via an `importmap`, so editing a file and reloading is the
+whole loop.
+
+The checks below need Node (18+) and `npm install` for a local copy of three.js
+that the headless tooling can import.
+
 ```bash
-tools/check.sh     # syntax-check every module
-tools/smoke.mjs    # headless: boot the game, load each arena, screenshot
+npm run check      # syntax-check every module
+npm run audit      # cross-arena consistency: ids, registry, determinism, API misuse
+npm run uicheck    # every DOM id and selector the JS touches exists in index.html
+npm run validate   # build all twelve arenas headlessly and test them
 ```
+
+### The headless validator
+
+`tools/validate.mjs` is the important one. It runs the **real engine** under
+Node behind a Canvas2D shim (`tools/dom-stub.mjs`), and for each arena it:
+
+- imports the module and checks the `meta` contract
+- runs `build(ctx)` and walks the resulting scene graph — mesh, triangle,
+  material, texture and light counts, shadow-caster budget, NaN transforms
+- checks the gameplay contract: coin/battery/power-up counts, exactly one pup,
+  hiding spots, valid power-up ids, finite pickup positions
+- calls every `onUpdate` callback at three different timestamps to catch
+  animation crashes
+- bakes the collision octree, then **drops a player capsule at `meta.spawn` and
+  simulates until it lands** — which catches spawns embedded in geometry, spawns
+  floating in the air, and arenas with no floor
+- fires eight capsule probes outward from spawn to find missing floor
+
+This is what caught the two engine bugs in `props.js`, and it is why all twelve
+arenas are known to be enterable rather than merely known to parse.
+
+**Note on timings:** the numbers below were measured on a very slow machine
+(roughly 20–50× slower than a laptop). Divide by ~25 for a realistic figure.
+
+| Arena | build | meshes | tris | materials | lights | collision |
+|---|---|---|---|---|---|---|
+| Backrooms | 23.8s | 135 | 147k | 102 | 22 / 2 shadow | 1 merged proxy |
+| Neon Metro | 74.5s | 705 | 88k | 160 | 25 / 3 | 429 |
+| Port Nine | 38.0s | 287 | 200k | 125 | 12 / 1 | 11 merged |
+| The Undercroft | 23.8s | 614 | 202k | 88 | 24 / 2 | 489 |
+| The Aqueducts | 21.5s | 458 | 162k | 60 | 14 / 3 | 332 |
+| Frostwatch | 16.4s | 561 | 160k | 117 | 24 / 3 | 188 |
+| Halo Nine | 25.0s | 570 | 85k | 149 | 24 / 3 | 272 |
+| Abbadon Manor | 29.6s | 1594 | 485k | 89 | 19 / 3 | 1221 |
+| Dust Bazaar | 51.7s | 394 | 190k | 82 | 19 / 1 | 168 |
+| The Static | 116.4s | 528 | 79k | 216 | 20 / 2 | 225 |
+
+Every arena lands its player capsule on solid floor from `meta.spawn`, and every
+one hides exactly one dog.
 
 ## Credits
 
