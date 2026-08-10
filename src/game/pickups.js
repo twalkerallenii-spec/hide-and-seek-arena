@@ -55,37 +55,26 @@ export class PickupSystem {
 
   _make(def) {
     const type = def.type || 'coin';
-    let mesh, color, value = 0, kind = type;
+    let mesh, color, value = 0, kind = type, powerId;
 
     if (type === 'coin') {
       color = 0xffd700;
-      mesh = new THREE.Mesh(COIN_GEO, new THREE.MeshStandardMaterial({
-        color: 0xffdf5a, emissive: 0xffb400, emissiveIntensity: 1.5,
-        metalness: 0.9, roughness: 0.25,
-      }));
+      mesh = new THREE.Mesh(COIN_GEO, sharedMaterial('coin'));
       value = 1;
     } else if (type === 'battery') {
       color = 0x46e0ff;
-      mesh = new THREE.Mesh(BATTERY_GEO, new THREE.MeshStandardMaterial({
-        color: 0x2a3a44, emissive: 0x2ec8ff, emissiveIntensity: 2.0,
-        metalness: 0.7, roughness: 0.3,
-      }));
+      mesh = new THREE.Mesh(BATTERY_GEO, sharedMaterial('battery'));
     } else if (type === 'pup') {
       color = 0xff3fa4;
-      mesh = new THREE.Mesh(PUP_GEO, new THREE.MeshStandardMaterial({
-        color: 0xffb2d8, emissive: 0xff3fa4, emissiveIntensity: 2.6,
-        metalness: 0.2, roughness: 0.5, flatShading: true,
-      }));
+      mesh = new THREE.Mesh(PUP_GEO, sharedMaterial('pup'));
     } else if (type.startsWith('powerup:')) {
       const id = type.slice(8);
       const p = POWERUPS[id];
       if (!p) return null;
       color = p.color;
       kind = 'powerup';
-      mesh = new THREE.Mesh(POWER_GEO, new THREE.MeshStandardMaterial({
-        color: 0x1a1f26, emissive: p.color, emissiveIntensity: 2.4,
-        metalness: 0.4, roughness: 0.2,
-      }));
+      powerId = id;
+      mesh = new THREE.Mesh(POWER_GEO, sharedMaterial('powerup:' + id, p.color));
       mesh.userData.powerId = id;
     } else {
       return null;
@@ -97,20 +86,13 @@ export class PickupSystem {
     mesh.userData.collide = false;
 
     // A soft halo billboard so pickups read from a distance and through fog.
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: haloTexture(),
-      color,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }));
+    const halo = new THREE.Sprite(sharedHalo(color));
     halo.scale.setScalar(type === 'pup' ? 2.2 : 1.35);
     mesh.add(halo);
 
     return {
-      mesh, halo, kind, color, value,
-      powerId: mesh.userData.powerId,
+      mesh, halo, kind, color, value, powerId,
+      matKey: kind === 'powerup' ? 'powerup:' + powerId : kind,
       baseY: def.pos.y,
       taken: false,
       phase: (def.pos.x * 0.7 + def.pos.z * 1.3) % 6.283,
@@ -125,6 +107,16 @@ export class PickupSystem {
     const revealing = this._t < this.revealUntil;
     const r2 = radius * radius;
 
+    // Materials are shared per kind, so the glow pulse is driven once here
+    // rather than fought over by every instance in the loop below.
+    const pulse = 1 + Math.sin(this._t * 3.4) * 0.18;
+    for (const [key, m] of MATERIALS) {
+      m.emissiveIntensity = (key === 'coin' ? 1.5 : 2.2) * pulse * (revealing ? 2.4 : 1);
+    }
+    for (const m of HALOS.values()) {
+      m.opacity = (revealing ? 0.9 : 0.5) * pulse;
+    }
+
     for (const it of this.items) {
       if (it.taken) continue;
       const m = it.mesh;
@@ -132,10 +124,6 @@ export class PickupSystem {
       m.position.y = it.baseY + bob;
       m.rotation.y += dt * (it.kind === 'coin' ? 2.0 : 1.1);
       if (it.kind === 'pup') m.rotation.x += dt * 0.6;
-
-      const pulse = 1 + Math.sin(this._t * 3.4 + it.phase) * 0.18;
-      m.material.emissiveIntensity = (it.kind === 'coin' ? 1.5 : 2.2) * pulse * (revealing ? 2.4 : 1);
-      it.halo.material.opacity = (revealing ? 0.9 : 0.5) * pulse;
 
       const dx = m.position.x - playerPos.x;
       const dy = m.position.y - playerPos.y - 0.85;
@@ -162,6 +150,32 @@ export class PickupSystem {
   remaining(kind) {
     return this.items.filter(i => i.kind === kind && !i.taken).length;
   }
+}
+
+// One material per pickup kind — 45 coins should not mean 45 materials.
+const MATERIALS = new Map();
+function sharedMaterial(key, tint) {
+  if (MATERIALS.has(key)) return MATERIALS.get(key);
+  const spec = {
+    coin:    { color: 0xffdf5a, emissive: 0xffb400, emissiveIntensity: 1.5, metalness: 0.9, roughness: 0.25 },
+    battery: { color: 0x2a3a44, emissive: 0x2ec8ff, emissiveIntensity: 2.0, metalness: 0.7, roughness: 0.30 },
+    pup:     { color: 0xffb2d8, emissive: 0xff3fa4, emissiveIntensity: 2.6, metalness: 0.2, roughness: 0.50, flatShading: true },
+  }[key] ?? { color: 0x1a1f26, emissive: tint ?? 0xffffff, emissiveIntensity: 2.4, metalness: 0.4, roughness: 0.2 };
+  const m = new THREE.MeshStandardMaterial(spec);
+  MATERIALS.set(key, m);
+  return m;
+}
+
+const HALOS = new Map();
+function sharedHalo(color) {
+  if (HALOS.has(color)) return HALOS.get(color);
+  const m = new THREE.SpriteMaterial({
+    map: haloTexture(), color,
+    transparent: true, opacity: 0.55,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  HALOS.set(color, m);
+  return m;
 }
 
 let _halo = null;

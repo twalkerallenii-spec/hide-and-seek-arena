@@ -39,6 +39,7 @@ export class World {
     this.lights.length = 0;
     this.elapsed = 0;
     this.surfaceResolver = null;
+    this.pendingSound = null;
   }
 
   /** Build the context object every arena module receives. */

@@ -169,6 +169,8 @@ h1, h2, h3, .display {
   backdrop-filter: blur(14px);
 }
 .coinchip .of { color: var(--ink-faint); font-size: .8em; }
+.coinchip.alt { border-color: rgba(255, 63, 164, .28); }
+.profile-txt { display: grid; gap: 3px; }
 .coin-ico, .found-ico, .pup-ico {
   width: 15px; height: 15px; border-radius: 50%; display: inline-block; flex: 0 0 auto;
 }
