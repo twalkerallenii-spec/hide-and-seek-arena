@@ -74,7 +74,8 @@ const ALCOVE = { x0: 1, x1: 3, z0: 25, z1: 26 };          // flooded alcove
 const SPAWN_CELL = { x: 16, z: 3 };
 
 const WALL_T = 0.30;
-const WALL_OVER = 0.5;   // walls continue this far above the suspended ceiling
+const WALL_OVER = 0.9;   // walls continue this far above the suspended ceiling
+                         // (also keeps wall tops out of jump range from a crate stack)
 const TILE = 1.2;        // suspended-ceiling module
 
 // =============================================================================
@@ -84,14 +85,15 @@ const TILE = 1.2;        // suspended-ceiling module
 export const meta = {
   id: 'backrooms',
   name: 'THE BACKROOMS',
-  tagline: 'You noclipped out of reality. The hum never stops.',
+  // tagline / colors / biome kept identical to src/arenas/index.js metaIndex
+  tagline: 'Six hundred million square miles of damp carpet, and the hum of fluorescent light.',
   order: 1,
   difficulty: 2,
-  biome: 'indoor',
+  biome: 'surreal',
   seed: 19960624,
   spawn: [CXC(SPAWN_CELL.x), 0, CZC(SPAWN_CELL.z)],
   bounds: 100,
-  colors: ['#d9c98c', '#3a3320'],
+  colors: ['#d9c98c', '#4a3d1c'],
   music: 'dread',
 };
 
@@ -223,6 +225,48 @@ export async function build(ctx) {
 
   const proxy = (x, y, z, sx, sy, sz) => { collGeos.push(boxAt(x, y, z, sx, sy, sz)); };
 
+  /**
+   * A run of parallel pipes with periodic collars, built at geometry level so
+   * it merges straight into a batch (and so the origin is exactly where I say).
+   * axis 'x': run spans a..b in X at Z = fixed. axis 'z': spans a..b in Z at X = fixed.
+   */
+  function pipeRun(batch, material, axis, a, b, y, fixed, count = 3, r = 0.09) {
+    const len = b - a, mid = (a + b) / 2;
+    if (len < 0.5) return;
+    for (let k = 0; k < count; k++) {
+      const off = (k - (count - 1) / 2) * (r * 2.9);
+      const place = (g, along) => {
+        g.rotateZ(Math.PI / 2);
+        if (axis === 'z') g.rotateY(Math.PI / 2);
+        if (axis === 'x') g.translate(along, y + (k % 2) * 0.025, fixed + off);
+        else g.translate(fixed + off, y + (k % 2) * 0.025, along);
+        batch.add(material, g);
+      };
+      place(new THREE.CylinderGeometry(r, r, len, 10, 1), mid);
+      for (let t = a + 2.5; t < b - 0.5; t += 4.5) {
+        place(new THREE.CylinderGeometry(r * 1.45, r * 1.45, 0.09, 10, 1), t);
+      }
+    }
+  }
+
+  /** Fixed-rung ladder (props.ladder offsets its rungs), climbable-flagged. */
+  function makeLadder(batch, material, x, z, h, facing) {
+    const w = 0.44;
+    for (const s of [-1, 1]) {
+      const g = facing === 'z'
+        ? boxAt(x + s * w / 2, h / 2, z, 0.05, h, 0.05)
+        : boxAt(x, h / 2, z + s * w / 2, 0.05, h, 0.05);
+      batch.add(material, g);
+    }
+    for (let y = 0.3; y < h; y += 0.32) {
+      const g = new THREE.CylinderGeometry(0.022, 0.022, w, 6, 1);
+      g.rotateZ(Math.PI / 2);
+      if (facing === 'x') g.rotateY(Math.PI / 2);
+      g.translate(x, y, z);
+      batch.add(material, g);
+    }
+  }
+
   const STATIC = new THREE.Group();   // props that get frozen at the end
   const LIVE = new THREE.Group();     // animated things (never frozen)
   ctx.add(LIVE);
@@ -269,6 +313,9 @@ export async function build(ctx) {
 
   const setV = (i, j, v, lock) => { if (!VL[vI(i, j)]) VW[vI(i, j)] = v; if (lock) VL[vI(i, j)] = 1; };
   const setH = (i, j, v, lock) => { if (!HL[hI(i, j)]) HW[hI(i, j)] = v; if (lock) HL[hI(i, j)] = 1; };
+  // authored landmarks always win, even over an earlier lock
+  const forceV = (i, j, v) => { VW[vI(i, j)] = v; VL[vI(i, j)] = 1; };
+  const forceH = (i, j, v) => { HW[hI(i, j)] = v; HL[hI(i, j)] = 1; };
 
   // ---- 3.4.a randomized DFS spanning tree (with a bias to run straight) -----
   {
@@ -383,44 +430,44 @@ export async function build(ctx) {
 
   // (i) THE PALINDROME CORRIDOR — identical dead ends, entered dead centre.
   for (let i = PAL.x0; i <= PAL.x1; i++) {
-    setH(i, PAL.z, 0, true);
-    setH(i, PAL.z + 1, 0, true);
-    if (i > PAL.x0) setV(i, PAL.z, 1, true);
+    forceH(i, PAL.z, 0);
+    forceH(i, PAL.z + 1, 0);
+    if (i > PAL.x0) forceV(i, PAL.z, 1);
   }
-  setV(PAL.x0, PAL.z, 0, true);
-  setV(PAL.x1 + 1, PAL.z, 0, true);
-  setH(PAL.mid, PAL.z + 1, 1, true);
+  forceV(PAL.x0, PAL.z, 0);
+  forceV(PAL.x1 + 1, PAL.z, 0);
+  forceH(PAL.mid, PAL.z + 1, 1);
   forcedGap.set(`h:${PAL.mid}:${PAL.z + 1}`, { c: CXC(PAL.mid), w: 1.8, lint: false });
 
   // (ii) THE SHAFT — a dead-end corridor that is inexplicably 8 m tall.
   for (let j = SHAFT.z0; j <= SHAFT.z1; j++) {
-    setV(SHAFT.x, j, 0, true);
-    setV(SHAFT.x + 1, j, 0, true);
-    if (j > SHAFT.z0) setH(SHAFT.x, j, 1, true);
+    forceV(SHAFT.x, j, 0);
+    forceV(SHAFT.x + 1, j, 0);
+    if (j > SHAFT.z0) forceH(SHAFT.x, j, 1);
   }
-  setH(SHAFT.x, SHAFT.z0, 0, true);
-  setH(SHAFT.x, SHAFT.z1 + 1, 1, true);
+  forceH(SHAFT.x, SHAFT.z0, 0);
+  forceH(SHAFT.x, SHAFT.z1 + 1, 1);
   forcedGap.set(`h:${SHAFT.x}:${SHAFT.z1 + 1}`, { c: CXC(SHAFT.x), w: 1.7, lint: true });
 
   // (iii) THE TALLY ROOM — sealed but for a single doorway.
   for (let i = TALLY.x0; i <= TALLY.x1; i++) for (let j = TALLY.z0; j <= TALLY.z1; j++) {
-    if (i > TALLY.x0) setV(i, j, 1, true);
-    if (j > TALLY.z0) setH(i, j, 1, true);
+    if (i > TALLY.x0) forceV(i, j, 1);
+    if (j > TALLY.z0) forceH(i, j, 1);
   }
-  for (let j = TALLY.z0; j <= TALLY.z1; j++) { setV(TALLY.x0, j, 0, true); setV(TALLY.x1 + 1, j, 0, true); }
-  for (let i = TALLY.x0; i <= TALLY.x1; i++) { setH(i, TALLY.z0, 0, true); setH(i, TALLY.z1 + 1, 0, true); }
-  setV(TALLY.x0, TALLY.z0, 1, true);
+  for (let j = TALLY.z0; j <= TALLY.z1; j++) { forceV(TALLY.x0, j, 0); forceV(TALLY.x1 + 1, j, 0); }
+  for (let i = TALLY.x0; i <= TALLY.x1; i++) { forceH(i, TALLY.z0, 0); forceH(i, TALLY.z1 + 1, 0); }
+  forceV(TALLY.x0, TALLY.z0, 1);
   forcedGap.set(`v:${TALLY.x0}:${TALLY.z0}`, { c: CZC(TALLY.z0), w: 1.5, lint: true });
 
   // (iv) THE SUNKEN SUB-LEVEL — sealed pit, one stair, low parapet on the north.
   const parapet = new Set();
   for (let i = PIT.x0; i <= PIT.x1; i++) for (let j = PIT.z0; j <= PIT.z1; j++) {
-    if (i > PIT.x0) setV(i, j, 1, true);
-    if (j > PIT.z0) setH(i, j, 1, true);
+    if (i > PIT.x0) forceV(i, j, 1);
+    if (j > PIT.z0) forceH(i, j, 1);
   }
-  for (let j = PIT.z0; j <= PIT.z1; j++) { setV(PIT.x0, j, 0, true); setV(PIT.x1 + 1, j, 0, true); }
-  for (let i = PIT.x0; i <= PIT.x1; i++) { setH(i, PIT.z0, 0, true); setH(i, PIT.z1 + 1, 0, true); }
-  setH(STAIR_CELL, PIT.z0, 1, true);
+  for (let j = PIT.z0; j <= PIT.z1; j++) { forceV(PIT.x0, j, 0); forceV(PIT.x1 + 1, j, 0); }
+  for (let i = PIT.x0; i <= PIT.x1; i++) { forceH(i, PIT.z0, 0); forceH(i, PIT.z1 + 1, 0); }
+  forceH(STAIR_CELL, PIT.z0, 1);
   forcedGap.set(`h:${STAIR_CELL}:${PIT.z0}`, { c: CXC(STAIR_CELL), w: 3.0, lint: false });
   for (let i = PIT.x0; i <= PIT.x1; i++) if (i !== STAIR_CELL) parapet.add(`h:${i}:${PIT.z0}`);
 
@@ -481,7 +528,9 @@ export async function build(ctx) {
     if (span < w + 1.0) return 1;
     const c = R.door.range(lo + w / 2 + 0.45, hi - w / 2 - 0.45);
     gapInfo.set(key, { c, w });
-    return R.door.chance(0.32) ? 3 : 2;
+    // lintelled doorways are the minority: they read better sparingly and each
+    // one costs an extra collision box.
+    return R.door.chance(0.15) ? 3 : 2;
   }
   for (let i = 1; i < NX; i++) for (let j = 0; j < NZ; j++)
     VSTYLE[vI(i, j)] = styleEdge(`v:${i}:${j}`, VW[vI(i, j)], zoneAt(i - 1, j), ZS[j], ZS[j + 1]);
@@ -631,6 +680,7 @@ export async function build(ctx) {
 
   // T-bar lattice + tile positions, per zone (so heights stay consistent)
   const tilePos = [];
+  const RCOLLAPSE = rectOf(COLLAPSE);
   for (const z of ZONES) {
     const r = rectOf(z);
     const h = z.h;
@@ -662,7 +712,7 @@ export async function build(ctx) {
     for (let xx = r.x0 + TILE / 2; xx < r.x1; xx += TILE) {
       for (let zz = r.z0 + TILE / 2; zz < r.z1; zz += TILE) {
         if (inWorldRect(RSHAFT, xx, zz)) continue;
-        const collapsedHere = inWorldRect(rectOf(COLLAPSE), xx, zz);
+        const collapsedHere = inWorldRect(RCOLLAPSE, xx, zz);
         const palin = inWorldRect(RPAL, xx, zz);
         let miss = missBase;
         if (collapsedHere) miss = 0.55;
@@ -716,19 +766,22 @@ export async function build(ctx) {
       zoneBatch.hall.add(M2.steel, boxAt(x, MEZ.y / 2, MEZ.z1 - 0.4, 0.16, MEZ.y, 0.16));
       proxy(x, MEZ.y / 2, MEZ.z1 - 0.4, 0.2, MEZ.y, 0.2);
     }
-    const rail = props.railing(w - 0.4, 1.05, M2.steel);
-    rail.position.set(cxm, MEZ.y, MEZ.z1 - 0.12);
+    // south railing, with a deliberate 4.4 m gap at the east end so the crate
+    // stair actually gets you onto the deck
+    const gapW = 4.4;
+    const railLen = w - 0.4 - gapW;
+    const railCx = MEZ.x0 + 0.2 + railLen / 2;
+    const rail = props.railing(railLen, 1.05, M2.steel);
+    rail.position.set(railCx, MEZ.y, MEZ.z1 - 0.12);
     STATIC.add(rail);
-    proxy(cxm, MEZ.y + 0.55, MEZ.z1 - 0.12, w, 1.1, 0.1);
+    proxy(railCx, MEZ.y + 0.55, MEZ.z1 - 0.12, railLen, 1.1, 0.1);
     const railE = props.railing(d - 0.4, 1.05, M2.steel);
     railE.rotation.y = Math.PI / 2;
     railE.position.set(MEZ.x1 - 0.12, MEZ.y, czm);
     STATIC.add(railE);
     proxy(MEZ.x1 - 0.12, MEZ.y + 0.55, czm, 0.1, 1.1, d);
-    // ladder (flavour) and a crate stair (guaranteed route up)
-    const lad = props.ladder(MEZ.y + 0.9, M2.steel);
-    lad.position.set(MEZ.x1 - 3.0, 0, MEZ.z1 + 0.22);
-    STATIC.add(lad);
+    // ladder (flavour) and a crate stair (the guaranteed route up)
+    makeLadder(zoneBatch.hall, M2.steel, MEZ.x1 - 3.6, MEZ.z1 + 0.24, MEZ.y + 0.9, 'z');
     for (let k = 0; k < 3; k++) {
       const c = props.crate(0.9, M.ply);
       c.position.set(MEZ.x1 - 0.9 - k * 0.95, k * 0.9, MEZ.z1 + 1.1);
@@ -754,10 +807,8 @@ export async function build(ctx) {
     }
     for (let k = 0; k < 5; k++) {
       const z = rc.z0 + 1.5 + k * ((rc.z1 - rc.z0 - 3) / 4);
-      const p = props.pipes(rc.x1 - rc.x0 - 1.5, 3, 0.085, M.rust);
-      p.position.set((rc.x0 + rc.x1) / 2, zc.h - R.dress.range(0.18, 0.45), z);
-      p.rotation.z = R.dress.range(-0.02, 0.02);
-      STATIC.add(p);
+      pipeRun(zoneBatch.collapsed, M.rust, 'x', rc.x0 + 0.8, rc.x1 - 0.8,
+        zc.h - R.dress.range(0.18, 0.45), z, 3, 0.085);
     }
     for (let k = 0; k < 5; k++) {
       const rb = props.rubble(R.dress.range(1.0, 2.0), 12, M.concrete, 700 + k);
@@ -838,10 +889,15 @@ export async function build(ctx) {
       zoneBatch.service.add(M.concrete, worldUV(boxAt(stairX, y, z, sw, sh, sd), UV_CONC));
       proxy(stairX, y, z, sw, sh, sd);
     }
-    // side stringers so the flight reads as built, not floating
-    for (const s of [-1, 1]) {
-      zoneBatch.service.add(M.concrete, worldUV(boxAt(stairX + s * (sw / 2 + 0.08), PIT_Y + 1.6, RPIT.z0 + 3.4, 0.16, 3.4, 6.6), UV_CONC));
-      proxy(stairX + s * (sw / 2 + 0.08), PIT_Y + 1.6, RPIT.z0 + 3.4, 0.16, 3.4, 6.6);
+    // raking side cheeks — visual only, and deliberately shallow so the void
+    // under the flight stays open (that is where the pup lives)
+    for (let k = 0; k < steps; k++) {
+      const y = PIT_Y + sh / 2 + k * sh;
+      const z = RPIT.z0 + 6.6 - 0.2 - k * sd;
+      for (const s of [-1, 1]) {
+        zoneBatch.service.add(M.concrete,
+          worldUV(boxAt(stairX + s * (sw / 2 + 0.08), y - 0.14, z, 0.16, 0.34, sd + 0.02), UV_CONC));
+      }
     }
     // railing along the parapet lip
     const railLen = RPIT.x1 - RPIT.x0;
@@ -859,9 +915,7 @@ export async function build(ctx) {
     STATIC.add(lk);
     proxy(RPIT.x1 - 3.4, PIT_Y + 0.93, RPIT.z0 + 2.2, 0.5, 1.86, 1.7);
     for (let k = 0; k < 4; k++) {
-      const p = props.pipes(RPIT.x1 - RPIT.x0 - 2, 4, 0.1, M.rust);
-      p.position.set((RPIT.x0 + RPIT.x1) / 2, 3.35, RPIT.z0 + 4 + k * 6.2);
-      STATIC.add(p);
+      pipeRun(zoneBatch.service, M.rust, 'x', RPIT.x0 + 1, RPIT.x1 - 1, 3.35, RPIT.z0 + 4 + k * 6.2, 4, 0.1);
     }
   }
 
@@ -902,13 +956,13 @@ export async function build(ctx) {
       }
       const c = props.chair(chairMat);
       c.position.set(axis + s * 22.4, 0.42, zc + 1.1);
-      c.rotation.set(Math.PI / 2 * 0.92, s * 0.7, 0.15);
+      c.rotation.set(Math.PI / 2 * 0.92, s > 0 ? 0.7 : Math.PI - 0.7, 0.15);
       STATIC.add(c);
       zoneBatch.corridors.add(M.ceilTile, boxAt(axis + s * 16.2, 0.03, zc - 1.5, 1.1, 0.04, 1.1));
-      // identical dead-end plates
+      // identical dead-end plates, hung flat on each identical end wall
       const dz = props.sign('DO NOT\nEXIT', { background: 0x3a3222, color: 0xd9c98c, height: 0.42, fontSize: 72 });
-      dz.position.set(axis + s * 24.5, 1.85, zc);
-      dz.rotation.y = s > 0 ? Math.PI : 0;
+      dz.position.set(axis + s * 24.82, 1.85, zc);
+      dz.rotation.y = s > 0 ? -Math.PI / 2 : Math.PI / 2;
       STATIC.add(dz);
     }
   }
@@ -1057,12 +1111,13 @@ export async function build(ctx) {
   // the scrawl in the tally room — every interior face, floor to ceiling
   {
     const rt = rectOf(TALLY);
-    const inner = 0.16;
+    // addDecal already pushes out by WALL_T/2 + 1.3 cm along `side`, so the
+    // face coordinate is the wall centre line, not the wall surface.
     for (const [ax, fx, side, a, b] of [
       ['v', rt.x0, 1, rt.z0, rt.z1], ['v', rt.x1, -1, rt.z0, rt.z1],
       ['h', rt.z0, 1, rt.x0, rt.x1], ['h', rt.z1, -1, rt.x0, rt.x1],
     ]) {
-      const face = { axis: ax, fixed: fx + (ax === 'v' ? -side * inner : -side * inner) };
+      const face = { axis: ax, fixed: fx };
       const span = b - a;
       const cols = Math.max(2, Math.round(span / 3.0));
       for (let k = 0; k < cols; k++) {
@@ -1126,10 +1181,11 @@ export async function build(ctx) {
       }
       crateStacks.push({ x: p.x, y: p.y, z: p.z });
     }
-    // wooden crate stack (climbable, hideable)
+    // wooden crate stack (climbable, hideable). Capped at 2 high: 3 would put
+    // the top at 2.7 m, and a 1.29 m jump from there clears a 2.9 m wall.
     if (R.dress.chance(0.7)) {
       const p = randomCellIn(zone, R.dress);
-      const n = R.dress.int(2, 3);
+      const n = 2;
       for (let k = 0; k < n; k++) {
         const c = props.crate(0.9, M.ply);
         c.position.set(p.x + k * 0.1, p.y + k * 0.9, p.z - k * 0.08);
@@ -1167,8 +1223,10 @@ export async function build(ctx) {
       const bar = props.boxC(0.012, bh * 0.9, 0.012, wire, { collide: false });
       bar.position.set(k * 0.075, by + bh / 2, -bd / 2 - 0.01); g.add(bar);
     }
+    // cyl() puts its mesh at local +h/2, so rotating by +90deg about Z moves it
+    // to -h/2 in X: offset the group by +h/2 to land it centred.
     const handle = props.cyl(0.018, 0.018, bw, wire, { seg: 8, collide: false });
-    handle.rotation.z = Math.PI / 2; handle.position.set(-bw / 2, by + bh + 0.12, bd / 2 + 0.05); g.add(handle);
+    handle.rotation.z = Math.PI / 2; handle.position.set(bw / 2, by + bh + 0.12, bd / 2 + 0.05); g.add(handle);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       const leg = props.cyl(0.014, 0.014, by, wire, { seg: 6, collide: false });
       leg.position.set(sx * bw * 0.42, 0.06, sz * bd * 0.42); g.add(leg);
@@ -1183,15 +1241,15 @@ export async function build(ctx) {
 
   // the wall phone with a cut cord
   {
-    const f = faces.find(ff => ff.zid === 'corridors' && ff.b - ff.a > 6 && ff.yt > 3);
+    // pick a 'h' face so the box lies flat against the wall without rotating
+    const f = faces.find(ff => ff.axis === 'h' && ff.zid === 'corridors' && ff.b - ff.a > 6 && ff.yt > 3);
     if (f) {
-      const t = (f.a + f.b) / 2, side = 1;
-      const px = f.axis === 'v' ? f.fixed + side * (WALL_T / 2 + 0.06) : t;
-      const pz = f.axis === 'v' ? t : f.fixed + side * (WALL_T / 2 + 0.06);
+      const px = (f.a + f.b) / 2;
+      const pz = f.fixed + (WALL_T / 2 + 0.05);
       const body = props.boxC(0.16, 0.28, 0.1, mat.solid({ color: 0xd8cfae, roughness: 0.65 }), { collide: false });
       body.position.set(px, 1.42, pz); STATIC.add(body);
       const rec = props.boxC(0.06, 0.2, 0.06, mat.solid({ color: 0x24241f, roughness: 0.7 }), { collide: false });
-      rec.position.set(px + (f.axis === 'v' ? 0.06 : 0.10), 1.44, pz + (f.axis === 'v' ? 0.10 : 0.06));
+      rec.position.set(px + 0.09, 1.44, pz + 0.03);
       STATIC.add(rec);
       for (let k = 0; k < 5; k++) {
         const c = props.cyl(0.008, 0.008, 0.09, M2.dark, { seg: 5, collide: false });
@@ -1317,19 +1375,21 @@ export async function build(ctx) {
     mk(panelDead, M2.dead, panelGeo, 0);
   }
 
-  // real point lights: at most 3 per zone, 14 total
+  // real point lights: at most 2 per zone, 11 total
   {
     const shuffled = panelOn.slice();
     R.light.shuffle(shuffled);
     const perZone = {};
     let placed = 0;
+    // Budget: 11 here + 1 pendant + 1 shaft + 2 palindrome + 1 tally spot
+    //         + 1 hall spot + 3 flicker = 20 real lights, 2 of them shadowed.
     for (const p of shuffled) {
-      if (placed >= 14) break;
+      if (placed >= 11) break;
       const i = cellIndexFor(p.x, XS, NX), j = cellIndexFor(p.z, ZS, NZ);
       if (i < 0 || j < 0) continue;
       const zid = zoneAt(i, j).id;
       perZone[zid] = perZone[zid] || 0;
-      if (perZone[zid] >= 3) continue;
+      if (perZone[zid] >= 2) continue;
       perZone[zid]++;
       placed++;
       const l = new THREE.PointLight(0xfff0c8, 11, 15, 1.75);

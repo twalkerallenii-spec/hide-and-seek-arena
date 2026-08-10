@@ -262,7 +262,7 @@ export function ladder(h, material) {
   const b = boxC(0.05, h, 0.05, material); b.position.set(w / 2, h / 2, 0); g.add(b);
   for (let y = 0.3; y < h; y += 0.32) {
     const r = cyl(0.022, 0.022, w, material, { seg: 6, collide: false });
-    r.rotation.z = Math.PI / 2; r.position.set(-w / 2, y, 0);
+    r.rotation.z = Math.PI / 2; r.position.set(w / 2, y, 0);
     g.add(r);
   }
   g.userData.climbable = true;
@@ -476,15 +476,17 @@ export function pipes(length, count = 3, r = 0.09, material, o = {}) {
   const g = new THREE.Group();
   const m = material ?? mat.metal(0x6c6f73, 0.5);
   for (let i = 0; i < count; i++) {
+    // cyl() puts its mesh at local +h/2; a +90 deg Z rotation maps that to
+    // -h/2 on X, so the group must sit at +len/2 to centre the run on origin.
     const p = cyl(r, r, length, m, { seg: 12, collide: o.collide ?? false });
     p.rotation.z = Math.PI / 2;
-    p.position.set(-length / 2, 0, (i - (count - 1) / 2) * (r * 2.8));
+    p.position.set(length / 2, 0, (i - (count - 1) / 2) * (r * 2.8));
     g.add(p);
     // flanges
     for (let x = -length / 2 + 2; x < length / 2; x += 3.5) {
       const f = cyl(r * 1.35, r * 1.35, 0.08, m, { seg: 12, collide: false });
       f.rotation.z = Math.PI / 2;
-      f.position.set(x, 0, (i - (count - 1) / 2) * (r * 2.8));
+      f.position.set(x + 0.04, 0, (i - (count - 1) / 2) * (r * 2.8));
       g.add(f);
     }
   }
@@ -593,7 +595,7 @@ export function fence(length, h = 2.0, style = 'chain', material) {
     panel.position.y = h / 2; panel.userData.collide = true;
     g.add(panel);
     const top = cyl(0.03, 0.03, length, m, { seg: 6, collide: false });
-    top.rotation.z = Math.PI / 2; top.position.set(-length / 2, h - 0.05, 0); g.add(top);
+    top.rotation.z = Math.PI / 2; top.position.set(length / 2, h - 0.05, 0); g.add(top);
   } else {
     const boards = Math.floor(length / 0.16);
     const wm = material ?? mat.surface('wood', { repeat: 1, size: 128, color: 0x6f5636, planks: 2 });
@@ -723,7 +725,7 @@ export function banner(w = 1.2, h = 3.0, color = 0x6d2436, emblem) {
   cloth.userData.collide = false;
   g.add(cloth);
   const rod = cyl(0.03, 0.03, w * 1.1, mat.metal(0x6a5a3a, 0.5), { seg: 8, collide: false });
-  rod.rotation.z = Math.PI / 2; rod.position.set(-w * 0.55, 0, 0); g.add(rod);
+  rod.rotation.z = Math.PI / 2; rod.position.set(w * 0.55, 0, 0); g.add(rod);
   if (emblem) {
     const { material: em, aspect } = mat.textMaterial(emblem, { color: 0xd9c07a, fontSize: 128 });
     const p = boxC(w * 0.6, (w * 0.6) / aspect, 0.005, em, { collide: false, shadow: false });

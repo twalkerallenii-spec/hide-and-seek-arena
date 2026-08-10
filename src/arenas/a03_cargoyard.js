@@ -34,7 +34,7 @@ import * as THREE from 'three';
 export const meta = {
   id: 'cargoyard',
   name: 'PORT NINE',
-  tagline: 'Golden hour on the stacks. Something is already up there.',
+  tagline: 'A maze you can climb on top of, at the hour when every shadow is a mile long.',
   order: 3,
   difficulty: 2,
   biome: 'outdoor',
@@ -236,8 +236,9 @@ function stairTower(ctx, o) {
     }
   }
 
-  // invisible shaft walls (entry gap on the -Z face, lane A)
-  const wallH = rise + 0.1;
+  // Invisible shaft walls (entry gap on the -Z face, lane A). They stop just
+  // below the top landing so the exit — whichever end it lands on — is clear.
+  const wallH = Math.max(0.6, rise - 0.15);
   pbox(boxes, -W / 2 - 0.12, wallH / 2, run / 2, 0.24, wallH, run + land * 2 + 0.5);
   pbox(boxes, W / 2 + 0.12, wallH / 2, run / 2, 0.24, wallH, run + land * 2 + 0.5);
   pbox(boxes, 0, wallH / 2, run + land + 0.12, W + 0.5, wallH, 0.24);
@@ -255,7 +256,6 @@ function stairTower(ctx, o) {
     r.position.set(sx * (W / 2 - 0.05), rise, exitZ);
     P.NOCOLLIDE(r); vis.add(r);
   }
-  pbox(boxes, 0, rise + 0.6, exitZ - exitDir * (land / 2 - 0.05), W, 1.2, 0.1);
 
   return { vis, boxes, exit: { x: 0, y: rise, z: exitZ + exitDir * (land / 2) }, exitDir, width: W };
 }
@@ -473,7 +473,7 @@ export async function build(ctx) {
   // 3. MATERIALS  (kept deliberately few — see header budget note)
   // ---------------------------------------------------------------------------
   const matAsphalt = M.surface('asphalt', { color: 0x4c4844, repeat: 52, size: 512 });
-  const matQuay = M.surface('concrete', { color: 0x8e8a80, repeat: 26, size: 512 });
+  const matQuay = M.surface('concrete', { color: 0x8e8a80, repeat: 26, size: 256 });
   const matSlab = M.surface('concrete', { color: 0x7c7972, repeat: 14, size: 256 });
   const matClad = M.surface('corrugated', { color: 0x6f7b74, repeat: 6, size: 256, ribs: 26 });
   const matHull = M.surface('rustMetal', { color: 0x1d3550, rust: 0x6f3a1a, repeat: 8, size: 256 });
@@ -573,8 +573,8 @@ export async function build(ctx) {
   // ---------------------------------------------------------------------------
   // 4. GROUND
   // ---------------------------------------------------------------------------
-  const ground = P.ground(244, 180, matAsphalt, { segs: 12 });
-  ground.position.set(-7, 0, 25);   // x -129..115, z -65..115
+  const ground = P.ground(244, 178, matAsphalt, { segs: 12 });
+  ground.position.set(-7, 0, 27);   // x -129..115, z -62..116 (stops at the quay face)
   ground.receiveShadow = true;
   ctx.add(ground);
 
@@ -761,6 +761,9 @@ export async function build(ctx) {
     pbox(quayBox, bx, 0.4, -60.4, 0.6, 0.8, 0.6);
   }
 
+  bake(ctx, quayVis);
+  mergeProxy(ctx, quayBox, 'quay');
+
   // The ship: MV KESTREL NINE, alongside from x -72 .. 20
   const shipVis = new THREE.Group();
   const shipBox = [];
@@ -883,7 +886,7 @@ export async function build(ctx) {
   // block shares one height, its roof is a flat, predictable platform and its
   // collision is ONE oriented box — cheap and exact.
   const blocks = [];
-  const CONTAINER_CAP = 470;
+  const CONTAINER_CAP = 620;
   let containerCount = 0;
 
   const reservedHit = (x0, x1, z0, z1) => RESERVED.find(
@@ -900,8 +903,15 @@ export async function build(ctx) {
       if (x + w > MAZE.x1) break;
       const res = reservedHit(x, x + w, bz0, bz1);
       if (res) { x = res.x1 + rMaze.range(1.8, 3.4); continue; }
-      if (rMaze.chance(0.80) && containerCount < CONTAINER_CAP) {
-        const tiers = rMaze.pick([1, 1, 1, 2, 2, 2, 2, 3, 3, 4]);
+      if (rMaze.chance(0.82) && containerCount < CONTAINER_CAP) {
+        // Stack height comes from a smooth noise field, so the yard reads as
+        // terraces rather than random spikes — and, critically, neighbouring
+        // stacks usually differ by 0 or 1 tier, which is what makes the roof
+        // layer stitchable into a real second map.
+        const qx = x + w / 2, qz = band.z0 + band.rows * CW / 2;
+        let tn = Math.round(2.35 + ctx.noise.fbm(qx * 0.030, qz * 0.042, 3) * 3.4);
+        if (rMaze.chance(0.18)) tn += rMaze.pick([-1, 1]);
+        const tiers = Math.max(1, Math.min(4, tn));
         const rows = band.rows;
         const b = {
           x0: x, x1: x + w, z0: bz0, z1: bz0 + rows * CW,
@@ -926,7 +936,7 @@ export async function build(ctx) {
           containerCount -= segN * 1;
         }
       }
-      x += w + rMaze.pick([2.1, 2.4, 3.0, 3.8, 5.2, 8.5, 13.0]);
+      x += w + rMaze.pick([2.1, 2.4, 3.0, 3.8, 5.0, 6.4, 10.5]);
     }
   }
 
@@ -949,6 +959,34 @@ export async function build(ctx) {
     };
     blocks.push(b); rampSteps.push(b);
     containerCount += 3 * (s + 1);
+  }
+
+  // Guarantee the hand-built climbs actually lead somewhere: force the nearest
+  // procedural stacks beside each entry hub to a matching (or one-tier-down)
+  // height, so the link pass below is certain to bridge them into the network.
+  {
+    const hubs = [anchorTower, anchorMast, rampSteps[3]];
+    const hubSet = new Set([anchorTower, anchorMast, ...rampSteps]);
+    for (const hub of hubs) {
+      const near = [];
+      for (const b of blocks) {
+        if (hubSet.has(b)) continue;
+        const ovZ = overlaps1D(b.z0, b.z1, hub.z0, hub.z1);
+        const ovX = overlaps1D(b.x0, b.x1, hub.x0, hub.x1);
+        let gap = Infinity;
+        if (ovZ > 1.5) gap = b.x0 > hub.x1 ? b.x0 - hub.x1 : hub.x0 - b.x1;
+        else if (ovX > 1.5) gap = b.z0 > hub.z1 ? b.z0 - hub.z1 : hub.z0 - b.z1;
+        if (!(gap >= 1.4 && gap <= 8.6)) continue;
+        near.push({ b, gap });
+      }
+      near.sort((p, q) => p.gap - q.gap);
+      for (const n of near.slice(0, 2)) {
+        const t = n.gap >= CH * 0.95 ? Math.max(1, hub.tiers - 1) : hub.tiers;
+        containerCount += (t - n.b.tiers) * n.b.cols * n.b.rows;
+        n.b.tiers = t;
+        n.b.top = t * CH;
+      }
+    }
   }
 
   // Fill the blocks with actual containers, chunked so the GPU can cull.
@@ -1016,18 +1054,19 @@ export async function build(ctx) {
       const a = blocks[i], b = blocks[j];
       if (a.top < 2.5 || b.top < 2.5) continue;
       const dh = Math.abs(a.top - b.top);
-      if (dh > CH + 0.05) continue;
-      let axis = null, gap = 0, ov = 0, mid = 0;
+      if (dh > 2 * CH + 0.05) continue;
+      let axis = null, gap = 0, mid = 0;
       const ovZ = overlaps1D(a.z0, a.z1, b.z0, b.z1);
       const ovX = overlaps1D(a.x0, a.x1, b.x0, b.x1);
-      if (ovZ > 1.8) {
+      if (ovZ > 1.5) {
         gap = a.x1 < b.x0 ? b.x0 - a.x1 : a.x0 - b.x1;
-        axis = 'x'; ov = ovZ; mid = (Math.max(a.z0, b.z0) + Math.min(a.z1, b.z1)) / 2;
-      } else if (ovX > 1.8) {
+        axis = 'x'; mid = (Math.max(a.z0, b.z0) + Math.min(a.z1, b.z1)) / 2;
+      } else if (ovX > 1.5) {
         gap = a.z1 < b.z0 ? b.z0 - a.z1 : a.z0 - b.z1;
-        axis = 'z'; ov = ovX; mid = (Math.max(a.x0, b.x0) + Math.min(a.x1, b.x1)) / 2;
+        axis = 'z'; mid = (Math.max(a.x0, b.x0) + Math.min(a.x1, b.x1)) / 2;
       }
-      if (!axis || gap < 1.4 || gap > 5.4) continue;
+      if (!axis || gap < 1.4 || gap > 8.6) continue;
+      if (gap < dh * 0.95) continue;            // cap gangway pitch at ~46 deg
       cands.push({ a, b, axis, gap, mid, dh, key: (a.cx + b.cx) * 7.13 + (a.cz + b.cz) * 3.31 });
     }
   }
@@ -1035,10 +1074,10 @@ export async function build(ctx) {
   let flatMade = 0, slopeMade = 0;
   for (const c of cands) {
     const wantSlope = c.dh > 0.05;
-    if (wantSlope && slopeMade >= 14) continue;
-    if (!wantSlope && flatMade >= 30) continue;
-    if (c.a.links >= 3 || c.b.links >= 3) continue;
-    if (!wantSlope && rDress.chance(0.22)) continue;   // leave holes in the roof net
+    if (wantSlope && slopeMade >= 40) continue;
+    if (!wantSlope && flatMade >= 44) continue;
+    if (c.a.links >= 5 || c.b.links >= 5) continue;
+    if (!wantSlope && rDress.chance(0.10)) continue;   // leave holes in the roof net
     const a = c.a, b = c.b;
     let ax, az, bx, bz;
     if (c.axis === 'x') {
@@ -1084,7 +1123,6 @@ export async function build(ctx) {
     walkPlate(ctx, climbVis, climbBox,
       ox + t.exit.x, anchorTower.top, oz + t.exit.z,
       anchorTower.x0 + 0.4, anchorTower.top, oz + t.exit.z, 1.8, matPlate);
-    ctx.hidingSpot(ox, 0.9, oz - 2.6, 1.3, 0.7);
   }
 
   // Route 3 — floodlight mast with an inclined caged ladder-stair to a platform
@@ -1110,11 +1148,12 @@ export async function build(ctx) {
     const llen = Math.hypot(lrun, lrise);
     const lpitch = Math.atan2(lrise, lrun);
     const lcx = mx + 1.5 + lrun / 2;
-    pbox(climbBox, lcx, lrise / 2 - 0.12, mz, llen, 0.3, 0.95, Math.PI / 2, 0, 0);
-    // (rotate about Z for a slope running along +X)
-    climbBox.pop();
+    // slope runs along +X, so the proxy is pitched about Z
     pbox(climbBox, lcx, lrise / 2 - 0.12, mz, llen, 0.3, 0.95, 0, 0, -lpitch);
-    for (const sz of [-1, 1]) pbox(climbBox, lcx, lrise / 2 + 0.5, mz + sz * 0.6, llen, lrise + 1.2, 0.12, 0, 0, 0);
+    // side walls hug the slope so you cannot step off sideways mid-climb
+    for (const sz of [-1, 1]) {
+      pbox(climbBox, lcx, lrise / 2 + 0.45, mz + sz * 0.58, llen, 1.5, 0.12, 0, 0, -lpitch);
+    }
     for (let s = 0; s < 22; s++) {
       const t2 = (s + 0.5) / 22;
       const st = P.boxC(0.34, 0.05, 0.82, matPlate, { collide: false, shadow: false });
@@ -1207,7 +1246,8 @@ export async function build(ctx) {
       pbox(climbBox, fx, fy, fz, CL, CH, CW, ry + extra, 0, rz);
       containerCount += 1;
     }
-    ctx.addDecor(P.rubble(4.5, 22, matSlab, 77));
+    const rb0 = P.rubble(4.5, 22, matSlab, 77); rb0.position.set(64.5, 0, -3.6);
+    P.NOCOLLIDE(rb0); cvis.add(rb0);
     const rb = P.rubble(3.4, 16, matSlab, 91); rb.position.set(69, 0, 2.4);
     P.NOCOLLIDE(rb); cvis.add(rb);
     for (let i = 0; i < 7; i++) {
@@ -1232,9 +1272,10 @@ export async function build(ctx) {
       }
       pos.needsUpdate = true;
     });
+    // a buckled deck plate leans against the wreck — the fourth way up
+    walkPlate(ctx, climbVis, climbBox, 59, 0.05, 8.6, 59, 2 * CH, 1.2, 2.0, matPlate);
     bake(ctx, cvis);
     ctx.hidingSpot(67.6, 0.9, 0.4, 1.6, 1.0);
-    ctx.hidingSpot(70.8, 0.9, 4.2, 1.4, 0.85);
   }
 
   // ---------------------------------------------------------------------------
@@ -1254,10 +1295,8 @@ export async function build(ctx) {
   ];
   for (const [ox, oz, ory, li, ajar] of openSpots) {
     openContainer(ctx, openVis, openBox, ox, oz, ory, li, ajar);
-    const fx = ox + Math.cos(ory) * -1.4, fz = oz + Math.sin(ory) * 1.4;
     ctx.hidingSpot(ox, 1.0, oz, 1.9, 1.0);
     paintSurf(ox - 3.4, ox + 3.4, oz - 1.6, oz + 1.6, 1);
-    void fx; void fz;
   }
   // one of them is full of crates
   for (let i = 0; i < 6; i++) {
@@ -1334,7 +1373,6 @@ export async function build(ctx) {
       const d = Math.hypot(apex.y - BOOM_Y - 2, tz + 49.5);
       const stay = P.cyl(0.09, 0.09, d, mSteelDark, { seg: 6, collide: false });
       stay.position.set(CRANE_X, BOOM_Y + 2, tz);
-      stay.rotation.x = Math.atan2(tz + 49.5, apex.y - BOOM_Y - 2) * -1 + Math.PI;
       stay.rotation.x = -Math.atan2(tz + 49.5, apex.y - BOOM_Y - 2);
       climbVis.add(stay);
     }
@@ -1368,8 +1406,15 @@ export async function build(ctx) {
     cw.position.set(CRANE_X - 4.6, BOOM_Y - 0.07, (cwZ0 + cwZ1) / 2); climbVis.add(cw);
     pbox(climbBox, CRANE_X - 4.6, BOOM_Y - 0.07, (cwZ0 + cwZ1) / 2, 1.9, 0.16, cwZ1 - cwZ0);
     for (const sxo of [-1, 1]) {
-      pbox(climbBox, CRANE_X - 4.6 + sxo * 0.98, BOOM_Y + 1.0, (cwZ0 + cwZ1) / 2, 0.12, 2.0, cwZ1 - cwZ0);
+      if (sxo < 0) {
+        // leave a doorway where the stair connector arrives
+        pbox(climbBox, CRANE_X - 5.58, BOOM_Y + 1.0, (cwZ0 - 41.5) / 2, 0.12, 2.0, -41.5 - cwZ0);
+        pbox(climbBox, CRANE_X - 5.58, BOOM_Y + 1.0, (-37.6 + cwZ1) / 2, 0.12, 2.0, cwZ1 + 37.6);
+      } else {
+        pbox(climbBox, CRANE_X - 3.62, BOOM_Y + 1.0, (cwZ0 + cwZ1) / 2, 0.12, 2.0, cwZ1 - cwZ0);
+      }
       for (let z = cwZ0; z < cwZ1; z += 8) {
+        if (sxo < 0 && z === -40) continue;   // the doorway
         const r = P.railing(8, 1.1, mSteelLight, { postEvery: 1.6 });
         r.rotation.y = Math.PI / 2;
         r.position.set(CRANE_X - 4.6 + sxo * 0.95, BOOM_Y, z + 4);
@@ -1400,8 +1445,8 @@ export async function build(ctx) {
     cabLight.position.set(CRANE_X, BOOM_Y - 2.4, -58);
     ctx.light(cabLight, { shadow: false });
 
-    ctx.hidingSpot(CRANE_X, BOOM_Y + 1.2, -35.5, 2.0, 0.9);
-    ctx.hidingSpot(sx, 0.9, sz - 2.4, 1.3, 0.7);
+    // tucked on the catwalk under the machinery house
+    ctx.hidingSpot(CRANE_X - 4.6, BOOM_Y + 1.0, -35.5, 2.0, 0.9);
   }
 
   // --- PN-2: rail-mounted gantry straddling the yard -------------------------
@@ -1556,7 +1601,7 @@ export async function build(ctx) {
         P.NOCOLLIDE(rack); whVis.add(rack);
         pbox(whBox, rx + pair * 0.65, 4.6, cz - 4, 0.55, 9.2, 15.6);
       }
-      ctx.hidingSpot(rx, 1.0, cz - 10.5, 1.5, 0.9);
+      if (rowi < 2) ctx.hidingSpot(rx, 1.0, cz - 10.5, 1.5, 0.9);
       // palletised goods on the racks
       for (let l = 0; l < 3; l++) for (let s = 0; s < 5; s++) {
         if (rDress.chance(0.34)) continue;
@@ -1628,7 +1673,6 @@ export async function build(ctx) {
 
     ctx.hidingSpot(WH.x0 + 3.4, 1.0, WH.z1 - 3, 1.6, 1.0);
     ctx.hidingSpot(mzCX, MZ.y + 1.0, mzCZ, 1.8, 0.85);
-    ctx.hidingSpot(cx + 9, 1.0, WH.z0 + 6, 1.5, 0.8);
   }
   bake(ctx, whVis);
   mergeProxy(ctx, whBox, 'warehouse');
@@ -1736,7 +1780,6 @@ export async function build(ctx) {
       pbox(junkBox, s[0], 1.8, s[1], 1.25, 3.6, 1.25);
     }
     ctx.hidingSpot(83.7, 0.9, -28.5, 1.6, 1.0);
-    ctx.hidingSpot(-54.5, 0.9, 25.5, 1.6, 0.95);
 
     // traffic cones
     const coneGeo = P.mergeGeometries([
@@ -1795,7 +1838,7 @@ export async function build(ctx) {
       skip.position.set(sx, 0, sz); skip.rotation.y = sry;
       junkVis.add(skip);
       pbox(junkBox, sx, 1.0, sz, 5.4, 2.0, 2.2, sry);
-      ctx.hidingSpot(sx, 1.2, sz, 1.5, 0.9);
+      if (sx > 0) ctx.hidingSpot(sx, 1.2, sz, 1.5, 0.9);
     }
 
     // row of portaloos
@@ -1847,10 +1890,187 @@ export async function build(ctx) {
       car.position.set(vx, 0, vz); car.rotation.y = vr;
       P.NOCOLLIDE(car); junkVis.add(car);
       pbox(junkBox, vx, 0.85, vz, 4.4, 1.7, 2.0, vr);
-      ctx.hidingSpot(vx + Math.sin(vr) * 2.6, 0.9, vz + Math.cos(vr) * 2.6, 1.3, 0.75);
     }
   }
   bake(ctx, junkVis);
   mergeProxy(ctx, junkBox, 'clutter');
 
-  //__SPLICE__
+  // ---------------------------------------------------------------------------
+  // 15. ATMOSPHERE — dust, gulls, haze cards
+  // ---------------------------------------------------------------------------
+  // Drifting dust in the sun. One THREE.Points draw call; the whole field is
+  // advected by moving its parent, which is free.
+  const dustRoot = new THREE.Group();
+  {
+    const N = 1500;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      pos[i * 3] = rAtmo.range(-70, 90);
+      pos[i * 3 + 1] = rAtmo.range(0.4, 16);
+      pos[i * 3 + 2] = rAtmo.range(-56, 66);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pm = new THREE.PointsMaterial({
+      size: 0.09, map: mDust.map, color: 0xffdcae, transparent: true,
+      opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending,
+      sizeAttenuation: true, fog: true,
+    });
+    const pts = new THREE.Points(g, pm);
+    pts.frustumCulled = false;
+    pts.userData.collide = false;
+    dustRoot.add(pts);
+    ctx.addDecor(dustRoot);
+  }
+
+  // Wheeling flock of gulls, high up
+  const GULLS = 26;
+  const gullGeo = new THREE.PlaneGeometry(0.85, 0.4);
+  const gulls = new THREE.InstancedMesh(gullGeo, mGull, GULLS);
+  gulls.userData.collide = false;
+  gulls.castShadow = false;
+  gulls.frustumCulled = false;
+  const gullSeed = [];
+  for (let i = 0; i < GULLS; i++) {
+    gullSeed.push({
+      r: rAtmo.range(34, 88),
+      y: rAtmo.range(26, 52),
+      p: rAtmo.range(0, Math.PI * 2),
+      s: rAtmo.range(0.055, 0.11) * (rAtmo.chance(0.5) ? 1 : -1),
+      f: rAtmo.range(3.2, 5.4),
+    });
+  }
+  ctx.addDecor(gulls);
+
+  // haze cards to thicken the distance behind the stacks
+  const hazeMat = new THREE.MeshBasicMaterial({
+    color: 0xd8ab74, transparent: true, opacity: 0.16, depthWrite: false,
+    side: THREE.DoubleSide, fog: false,
+  });
+  for (let i = 0; i < 6; i++) {
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(220, 34), hazeMat);
+    card.position.set(rAtmo.range(-40, 40), 12 + i * 2.5, -150 - i * 22);
+    card.userData.collide = false;
+    card.renderOrder = -1;
+    ctx.addDecor(card);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 16. GAMEPLAY PLACEMENT
+  // ---------------------------------------------------------------------------
+  const insideAnyBlock = (x, z, pad = 1.0) => blocks.some(
+    (b) => x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad);
+
+  // -- coins: ground maze (14)
+  let placed = 0, tries = 0;
+  while (placed < 14 && tries++ < 900) {
+    const x = rLoot.range(MAZE.x0 - 2, MAZE.x1 + 2);
+    const z = rLoot.range(-32, 51);
+    if (insideAnyBlock(x, z, 0.9)) continue;
+    if (!insideAnyBlock(x, z, 3.2)) continue;   // must be in an alley, not open tarmac
+    ctx.pickup(x, 1.0, z, 'coin');
+    placed++;
+  }
+  // -- coins: container tops (10)
+  const tall = blocks.filter((b) => b.tiers >= 2).sort((a, b) => (a.cx * 3.7 + a.cz) - (b.cx * 3.7 + b.cz));
+  for (let i = 0; i < 10 && tall.length; i++) {
+    const b = tall[Math.floor((i / 10) * tall.length)];
+    ctx.pickup(b.cx + rLoot.range(-1.6, 1.6), b.top + 1.0, b.cz + rLoot.range(-0.8, 0.8), 'coin');
+  }
+  // -- coins: warehouse (6)
+  for (const [cxp, cyp, czp] of [
+    [-100, 1.0, -8], [-92, 1.0, 6], [-78, 1.0, 20], [-96, 1.0, 34],
+    [-97, 5.2, 34], [-74, 1.0, -10],
+  ]) ctx.pickup(cxp, cyp, czp, 'coin');
+  // -- coins: quay + ship (6)
+  for (const [cxp, cyp, czp] of [
+    [-66, 1.0, -50], [-12, 1.0, -54], [44, 1.0, -52], [82, 1.0, -50],
+    [-50, 4.9, -71], [-6, 4.9, -71],
+  ]) ctx.pickup(cxp, cyp, czp, 'coin');
+  // -- coins: the crane catwalk (6) — pay the player for the climb
+  for (let i = 0; i < 6; i++) {
+    ctx.pickup(CRANE_X - 4.6, BOOM_Y + 1.0, -44 - i * 7.5, 'coin');
+  }
+
+  // -- batteries (5)
+  ctx.pickup(-13, 1.0, 70.6, 'battery');                     // guard hut doorstep
+  ctx.pickup(-97, 5.2, 30, 'battery');                       // mezzanine
+  ctx.pickup(-25.5, 13.2, -44.4, 'battery');                 // crane stair mid-landing
+  ctx.pickup(rampSteps[1].cx, rampSteps[1].top + 1.0, rampSteps[1].cz, 'battery');
+  ctx.pickup(70, -1.6, -66.5, 'battery');                    // down the slipway
+
+  // -- powerups (4)
+  ctx.pickup(anchorTower.cx, anchorTower.top + 1.0, anchorTower.cz, 'powerup:ghost');
+  ctx.pickup(-88, 1.0, 26, 'powerup:dash');
+  ctx.pickup(rampSteps[3].cx, rampSteps[3].top + 1.0, rampSteps[3].cz, 'powerup:jumpjet');
+  ctx.pickup(-40, 4.9, -71, 'powerup:nightvision');
+
+  // -- the pup: inside the container whose doors only LOOK shut
+  ctx.pickup(33.6, 1.15, -28.4, 'pup');
+
+  // -- hiding spots in the tight alleys
+  let hid = 0;
+  for (const c of cands) {
+    if (hid >= 3) break;
+    if (c.gap > 2.7) continue;
+    if (c.axis === 'x') {
+      const left = c.a.x1 < c.b.x0 ? c.a : c.b;
+      ctx.hidingSpot(left.x1 + c.gap / 2, 0.9, c.mid, 1.3, 1.0);
+    } else {
+      const near = c.a.z1 < c.b.z0 ? c.a : c.b;
+      ctx.hidingSpot(c.mid, 0.9, near.z1 + c.gap / 2, 1.3, 1.0);
+    }
+    hid++;
+  }
+  // a couple up top, where the Seeker rarely looks first
+  ctx.hidingSpot(rampSteps[3].cx, rampSteps[3].top + 0.9, rampSteps[3].cz, 1.5, 0.8);
+  ctx.hidingSpot(CRANE_X - 4.6, BOOM_Y + 0.9, -70, 2.0, 0.9);
+  ctx.hidingSpot(-7.35, 8.9, -14.2, 1.4, 0.8);
+
+  // ---------------------------------------------------------------------------
+  // 17. MOTION
+  // ---------------------------------------------------------------------------
+  const gullDummy = new THREE.Object3D();
+  ctx.onUpdate((dt, el) => {
+    // sea
+    waterMat.userData.tick?.(dt);
+
+    // crane trolleys traversing their booms
+    if (trolleyA) {
+      trolleyA.position.z = -60 + Math.sin(el * 0.055) * 24;
+      trolleyA.position.y = Math.sin(el * 0.11) * 0.05;
+    }
+    if (trolleyB) {
+      trolleyB.position.z = 6 + Math.sin(el * 0.07 + 1.2) * 20;
+    }
+
+    // gulls
+    for (let i = 0; i < GULLS; i++) {
+      const g = gullSeed[i];
+      const a = g.p + el * g.s;
+      const x = 6 + Math.cos(a) * g.r;
+      const z = -18 + Math.sin(a) * g.r * 0.72;
+      gullDummy.position.set(x, g.y + Math.sin(el * 0.4 + g.p) * 1.8, z);
+      gullDummy.rotation.set(0, -a + (g.s > 0 ? Math.PI / 2 : -Math.PI / 2), 0);
+      const flap = 0.35 + Math.abs(Math.sin(el * g.f + g.p)) * 0.75;
+      gullDummy.scale.set(1, 1, flap);
+      gullDummy.rotateX(-Math.PI / 2);
+      gullDummy.scale.set(1, flap, 1);
+      gullDummy.updateMatrix();
+      gulls.setMatrixAt(i, gullDummy.matrix);
+    }
+    gulls.instanceMatrix.needsUpdate = true;
+
+    // dust drift
+    dustRoot.position.set(
+      Math.sin(el * 0.045) * 3.2,
+      Math.sin(el * 0.031) * 0.9,
+      Math.cos(el * 0.038) * 2.6);
+    dustRoot.rotation.y = el * 0.004;
+
+    // light shafts breathe as dust crosses them
+    for (let i = 0; i < shafts.length; i++) {
+      shafts[i].opacity = 0.055 + Math.sin(el * 0.35 + i * 1.7) * 0.022;
+    }
+  });
+}

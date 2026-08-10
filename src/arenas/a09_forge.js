@@ -50,7 +50,7 @@ const LEAK_GRATES = [
   { x0: -21.5, x1: -18.5, z0: -15.5, z1: -12.5 },
   { x0: 6.5, x1: 9.5, z0: -25.5, z1: -22.5 },
   { x0: -7.5, x1: -4.5, z0: 0.5, z1: 3.5 },
-  { x0: 18.7, x1: 21.3, z0: -35.3, z1: -32.7 },
+  { x0: 18.7, x1: 21.3, z0: -20.3, z1: -17.7 },
 ];
 
 const HOT = { white: 0xffd070, molten: 0xff5a10, dull: 0x8c1f06, cold: 0x6fd8ff };
@@ -253,6 +253,9 @@ export async function build(ctx) {
   //    optional heat-particle emitter feeding one global instanced buffer.
   // ===========================================================================
   const RIGS = [];
+  const SWAY = [];             // things that hang and swing
+  const SPIN = [];             // things that turn
+  const TICKERS = [];          // materials with their own userData.tick(dt)
   let lightCount = 0;
   const HEAT_EMIT = [];
   const SPARK_EMIT = [];
@@ -365,14 +368,17 @@ export async function build(ctx) {
     const mz = alongZ ? z + sign * run / 2 : z;
     const my = (y0 + y1) / 2;
 
-    const g = new T.Group();
-    g.position.set(mx, my, mz);
-    if (alongZ) g.rotation.x = -sign * SLOPE; else g.rotation.z = sign * SLOPE;
+    const g = new T.Group();                 // visuals   -> frozen into STEEL
+    const cg = new T.Group();                // colliders -> live in COL
+    for (const grp of [g, cg]) {
+      grp.position.set(mx, my, mz);
+      if (alongZ) grp.rotation.x = -sign * SLOPE; else grp.rotation.z = sign * SLOPE;
+    }
 
     // hidden walking surface
     const ramp = P.boxC(alongZ ? w : L, 0.4, alongZ ? L : w, invisMat, { shadow: false, receive: false });
     ramp.position.y = -0.2; ramp.visible = false; ramp.userData.collide = true;
-    g.add(ramp);
+    cg.add(ramp);
     // stringers + handrails, all in the tilted frame
     for (const s of [-1, 1]) {
       const st = P.boxC(alongZ ? 0.09 : L, 0.36, alongZ ? L : 0.09, steelPlate, { shadow: false });
@@ -387,9 +393,9 @@ export async function build(ctx) {
       const guard = P.boxC(alongZ ? 0.1 : L, 1.14, alongZ ? L : 0.1, invisMat, { shadow: false });
       guard.position.set(alongZ ? s * w / 2 : 0, 0.57, alongZ ? 0 : s * w / 2);
       guard.visible = false; guard.userData.collide = true;
-      COL.add(guard.clone().applyMatrix4(new T.Matrix4()));
-      g.add(guard);
+      cg.add(guard);
     }
+    COL.add(cg);
     // posts
     const posts = Math.max(2, Math.round(L / 2.4));
     for (let i = 0; i <= posts; i++) {
@@ -497,9 +503,9 @@ export async function build(ctx) {
   hallWall(HALL.x0, HALL.z0, HALL.x1, HALL.z0, null);
   hallWall(HALL.x0, HALL.z1, HALL.x1, HALL.z1, null);
 
-  // hall roof — pitched-ish, two slabs with a ridge lantern
-  put(SHELL, 92, 0.5, 46, -5, HALL.h + 0.25, 0, roofSheet);
-  proxy(92, 0.6, 46, -5, HALL.h + 0.3, 0);
+  // hall roof — a deck plus a raised ridge lantern along the centre
+  put(SHELL, 92, 0.5, 92, -5, HALL.h + 0.25, 0, roofSheet);
+  proxy(92, 0.6, 92, -5, HALL.h + 0.3, 0);
   put(SHELL, 92, 2.4, 6, -5, HALL.h + 1.6, 0, cladUpper);
 
   // clerestory of broken windows — cold night bleeding in near the eaves
@@ -601,10 +607,12 @@ export async function build(ctx) {
 
   // --- casting pits: cooling ingots at four temperatures ----------------------
   const ingotGeo = new T.BoxGeometry(1, 1, 1);
+  // Four temperatures per pit: white-hot, orange, dull red, black. `hot` marks
+  // which of them the molten rig is allowed to pulse.
   const pitTemps = [
-    [hotMat(HOT.white, 5.2), hotMat(HOT.molten, 3.4), hotMat(HOT.dull, 1.5), M.solid({ color: 0x14100e, roughness: 0.85 })],
-    [hotMat(HOT.molten, 4.0), hotMat(HOT.dull, 1.8), M.solid({ color: 0x1a120e, roughness: 0.9 }), M.solid({ color: 0x100d0b, roughness: 0.92 })],
-    [hotMat(HOT.dull, 2.2), M.solid({ color: 0x1d1410, roughness: 0.9 }), M.solid({ color: 0x121010, roughness: 0.95 }), M.solid({ color: 0x0e0c0b, roughness: 0.95 })],
+    { mats: [hotMat(HOT.white, 5.2), hotMat(HOT.molten, 3.4), hotMat(HOT.dull, 1.5), M.solid({ color: 0x14100e, roughness: 0.85 })], hot: 3 },
+    { mats: [hotMat(HOT.molten, 4.0), hotMat(HOT.dull, 1.8), M.solid({ color: 0x1a120e, roughness: 0.9 }), M.solid({ color: 0x100d0b, roughness: 0.92 })], hot: 2 },
+    { mats: [hotMat(HOT.dull, 2.2), M.solid({ color: 0x1d1410, roughness: 0.9 }), M.solid({ color: 0x121010, roughness: 0.95 }), M.solid({ color: 0x0e0c0b, roughness: 0.95 })], hot: 1 },
   ];
   PITS.forEach((pit, pi) => {
     const w = pit.x1 - pit.x0, d = pit.z1 - pit.z0;
@@ -621,30 +629,39 @@ export async function build(ctx) {
     }
     // escape ramp at the +x end so the pit is enterable, not a trap
     rampOnly(pit.x1 - 0.2, cz, 0, -pit.d, 'x', -1, 2.4, concreteDark);
-    // ingots, hottest to coldest across the pit
+    // ingots, hottest to coldest across the pit — one instanced batch per grade
     const temps = pitTemps[pi];
     const rows = Math.floor(d / 1.5), cols = Math.floor(w / 1.9);
+    const buckets = [[], [], [], []];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       if (R.ingot.chance(0.12)) continue;
       const t = Math.min(3, Math.floor((c / cols) * 3.4 + R.ingot.range(0, 0.9)));
-      const m = new T.Mesh(ingotGeo, temps[t]);
-      m.scale.set(R.ingot.range(1.4, 1.7), R.ingot.range(0.4, 0.7), R.ingot.range(0.9, 1.2));
-      m.position.set(
-        pit.x0 + 1.0 + c * 1.9 + R.ingot.range(-0.15, 0.15),
-        -pit.d + m.scale.y / 2 + 0.26,
-        pit.z0 + 0.9 + r * 1.5 + R.ingot.range(-0.12, 0.12));
-      m.rotation.y = R.ingot.range(-0.09, 0.09);
-      m.castShadow = false; m.userData.collide = false;
-      LIVE.add(m);
+      const sy = R.ingot.range(0.4, 0.7);
+      buckets[t].push({
+        p: [pit.x0 + 1.0 + c * 1.9 + R.ingot.range(-0.15, 0.15), -pit.d + sy / 2 + 0.26,
+        pit.z0 + 0.9 + r * 1.5 + R.ingot.range(-0.12, 0.12)],
+        s: [R.ingot.range(1.4, 1.7), sy, R.ingot.range(0.9, 1.2)],
+        ry: R.ingot.range(-0.09, 0.09),
+      });
     }
+    buckets.forEach((list, t) => {
+      if (!list.length) return;
+      const im = P.scatter(ingotGeo, temps.mats[t], list.length, (i, d2) => {
+        d2.position.set(list[i].p[0], list[i].p[1], list[i].p[2]);
+        d2.scale.set(list[i].s[0], list[i].s[1], list[i].s[2]);
+        d2.rotation.y = list[i].ry;
+      }, 600 + pi * 7 + t);
+      im.castShadow = false;
+      ctx.addDecor(im);
+    });
     molten({
-      mats: temps.slice(0, 2),
+      mats: temps.mats.slice(0, temps.hot),
       at: [cx - w * 0.28, -pit.d + 0.6, cz], color: pi === 0 ? HOT.white : HOT.molten,
       power: pi === 0 ? 16 : 10, dist: pi === 0 ? 34 : 24, shadow: pi === 1,
       heat: { r: Math.min(w, d) * 0.35, rise: 11, size: 0.34, n: 26, y: -pit.d + 0.5 },
       amp: 0.3, speed: 0.24,
     });
-    ctx.hidingSpot(cx + w * 0.32, -pit.d, cz + d * 0.3, 1.6, 0.8);
+    if (pi !== 1) ctx.hidingSpot(cx + w * 0.32, -pit.d, cz + d * 0.3, 1.6, 0.8);
   });
 
   // --- rails and ingot bogies -------------------------------------------------
@@ -666,7 +683,7 @@ export async function build(ctx) {
     g.position.set(-34 + i * 24, 0, -2);
     LIVE.add(g);
     bogies.push({ g, m: glowM, speed: i === 0 ? 1.4 : 0, base: -34 + i * 24 });
-    proxy(3.6, 1.8, 2.3, -34 + i * 24, 0.9, -2);
+    if (i !== 0) proxy(3.6, 1.8, 2.3, -34 + i * 24, 0.9, -2);
     if (i === 0) molten({ mats: [glowM], at: [-34, 1.9, -2], color: HOT.molten, power: 7, dist: 16, amp: 0.2, speed: 0.5 });
   }
 
@@ -694,7 +711,7 @@ export async function build(ctx) {
       embers.castShadow = false;
       ctx.addDecor(embers);
       proxy(heap.r * 1.5, heap.h, heap.r * 1.5, heap.x, heap.h / 2, heap.z);
-      ctx.hidingSpot(heap.x + heap.r * 0.9, 0, heap.z + heap.r * 0.7, 1.6, 0.75);
+      if (heap.x < 0) ctx.hidingSpot(heap.x + heap.r * 0.9, 0, heap.z + heap.r * 0.7, 1.6, 0.75);
     }
     molten({
       mats: [hot], at: [slagHeaps[0].x, 1.4, slagHeaps[0].z], color: HOT.dull, power: 9, dist: 20,
@@ -786,7 +803,7 @@ export async function build(ctx) {
     for (const s of [-1, 1]) put(belt, 0.14, 1.0, cl, s * 1.1, 0.6, -cl / 2 + 1, blackMetal);
     conv.add(belt);
     DETAIL.add(conv);
-    ctx.hidingSpot(f.x - f.r - 1.6, 0, f.z - f.r - 1.2, 1.8, 0.9);
+    if (fi !== 1) ctx.hidingSpot(f.x - f.r - 1.6, 0, f.z - f.r - 1.2, 1.8, 0.9);
   });
   {
     const rv = P.scatter(rivetGeo, greyMetal, rivetXf.length, (i, d) => {
@@ -891,20 +908,21 @@ export async function build(ctx) {
   deck('x', 31.4, 36.6, -24.29, 4, { w: 1.8 });
 
   // -- L2  y = 9 : the charging gallery in front of the furnace row ------------
-  deck('x', -46, 36, -21.5, 9, { w: 2.6, hazard: true });
-  deck('z', -22.5, -13, -40, 9);
-  deck('z', -22.5, 10, 32, 9);
+  const L2G = -19.5;                       // charging gallery centreline
+  deck('x', -46, 36, L2G, 9, { w: 2.6, hazard: true });
+  deck('z', -20.5, -13, -40, 9);
+  deck('z', -20.5, 10, 32, 9);
   deck('x', 22, 32.6, -6, 9);
-  // furnace tapping platforms
-  FURNACES.forEach((f, i) => {
+  // furnace tapping platforms, set back from the gallery and spurred to it
+  FURNACES.forEach((f) => {
     deck('x', f.x - 7, f.x + 7, f.z + 7.4, 9, { w: 2.8 });
-    deck('z', f.z + 7.4, -21.5, f.x, 9, { w: 1.8 });
+    deck('z', f.z + 7.4, L2G, f.x, 9, { w: 1.8 });
   });
   // L1 -> L2, at the two gaps between furnaces
   for (const sx of [-18, 6]) {
-    deck('z', -41.6, -36.5, sx, 4, { w: 1.8 });
+    deck('z', -40.6, -36.5, sx, 4, { w: 1.8 });
     stairFlight(sx, -37, 4, 9, 'z', 1);
-    deck('z', -30.4, -22.0, sx, 9, { w: 1.8 });
+    deck('z', -30.4, -19.0, sx, 9, { w: 1.8 });
   }
 
   // -- L3  y = 15 : the spine + upper furnace walk (spine broken at x 6..14) ---
@@ -944,6 +962,7 @@ export async function build(ctx) {
   deck('z', -18.6, 33.4, -40, 30, { w: 2.0 });
   deck('z', -18.6, 4, 30, 30, { w: 2.0 });
   deck('z', 10, 33.4, 30, 30, { w: 2.0 });                     // <- GAP z 4..10
+  deck('x', -44.6, -39, 22, 22, { w: 1.8 });
   stairFlight(-43.5, 22, 22, 30, 'z', 1);
   deck('x', -44.6, -40, 33.43, 30, { w: 1.8 });
   stairFlight(33.5, -30, 22, 30, 'z', 1);
@@ -1024,28 +1043,41 @@ export async function build(ctx) {
     wallSeg(PUL.x0, PUL.z1, PUL.x1, PUL.z1, PUL.y, PUL.y + PUL.h, 0.25, steelPlate);
     wallSeg(PUL.x1, PUL.z0, PUL.x1, PUL.z1, PUL.y, PUL.y + PUL.h, 0.25, steelPlate);
     // glazing (non-colliding pane + framed collision below/above the sill)
-    for (const [ax, az, bx, bz] of [[PUL.x0, PUL.z0, PUL.x1, PUL.z0], [PUL.x0, PUL.z0, PUL.x0, PUL.z1]]) {
+    // [ax, az, bx, bz, hasSill] — the north face is split around the doorway
+    const panes = [
+      [PUL.x0, PUL.z0, 31, PUL.z0], [33, PUL.z0, PUL.x1, PUL.z0],
+      [PUL.x0, PUL.z0, PUL.x0, PUL.z1],
+    ];
+    for (const [ax, az, bx, bz] of panes) {
       const len = Math.hypot(bx - ax, bz - az);
       const ry = -Math.atan2(bz - az, bx - ax);
       const mxx = (ax + bx) / 2, mzz = (az + bz) / 2;
-      const pane = put(DETAIL, len - 2.4, 2.4, 0.06, mxx, PUL.y + 2.4, mzz, glassMat, ry);
+      const pane = put(DETAIL, len - 0.2, 2.4, 0.06, mxx, PUL.y + 2.4, mzz, glassMat, ry);
       pane.castShadow = false;
       put(SHELL, len, 0.9, 0.22, mxx, PUL.y + 0.45, mzz, steelPlate, ry);
       put(SHELL, len, 1.1, 0.22, mxx, PUL.y + PUL.h - 0.55, mzz, steelPlate, ry);
-      proxy(len, 0.9, 0.22, mxx, PUL.y + 0.45, mzz, ry);
-      proxy(len, 1.1, 0.22, mxx, PUL.y + PUL.h - 0.55, mzz, ry);
       // mullions
-      for (let i = 1; i < 4; i++) {
-        const t = i / 4;
+      for (let i = 1; i < 3; i++) {
+        const t = i / 3;
         put(DETAIL, 0.1, 2.4, 0.16, ax + (bx - ax) * t, PUL.y + 2.4, az + (bz - az) * t, blackMetal, ry);
       }
     }
-    // side glass panels need edge collision so nobody walks out the window
+    // Sill collision splits around the doorway; the header is above head height
+    // so it can run the full width.
+    proxy(4.0, 0.9, 0.22, PUL.x0 + 2.0, PUL.y + 0.45, PUL.z0);
+    proxy(6.0, 0.9, 0.22, PUL.x1 - 3.0, PUL.y + 0.45, PUL.z0);
+    proxy(w, 1.1, 0.22, cx, PUL.y + PUL.h - 0.55, PUL.z0);
+    proxy(0.22, 0.9, d, PUL.x0, PUL.y + 0.45, cz);
+    proxy(0.22, 1.1, d, PUL.x0, PUL.y + PUL.h - 0.55, cz);
+    // Glazing needs collision so nobody walks out of the window. The north face
+    // keeps a 2 m doorway at x 31..33, where the L2 spur arrives.
     proxy(0.2, 2.6, d, PUL.x0, PUL.y + 2.4, cz);
-    proxy(w, 2.6, 0.2, cx, PUL.y + 2.4, PUL.z0 - 0.0);
-    // ...but leave a door: cut a gap by nudging the north proxy and adding jambs
-    COL.children[COL.children.length - 1].scale.x = (w - 2.0) / w;
-    COL.children[COL.children.length - 1].position.x = cx + 1.0;
+    proxy(4.0, 2.6, 0.2, PUL.x0 + 2.0, PUL.y + 2.4, PUL.z0);
+    proxy(6.0, 2.6, 0.2, PUL.x1 - 3.0, PUL.y + 2.4, PUL.z0);
+    for (const jx of [31, 33]) {
+      put(DETAIL, 0.16, PUL.h, 0.32, jx, PUL.y + PUL.h / 2, PUL.z0, blackMetal);
+    }
+    chevron(2.0, 32, PUL.y + 0.12, PUL.z0, false, 0.2);
 
     // interior: console, levers, CRTs, coffee, rota
     const desk = put(DETAIL, w - 1.6, 0.16, 0.9, cx, PUL.y + 0.95, PUL.z0 + 1.0, steelPlate);
@@ -1164,7 +1196,7 @@ export async function build(ctx) {
       // eyes of the coils, dark holes
       for (let row = 0; row < 5; row++) {
         proxy(34, 4.4, 2.6, 63, 2.2, 16 + row * 4.2);
-        ctx.hidingSpot(50 + row * 6, 0, 18.4 + row * 4.2, 1.7, 0.95);
+        if (row % 2 === 0) ctx.hidingSpot(50 + row * 6, 0, 18.4 + row * 4.2, 1.7, 0.95);
       }
       ctx.hidingSpot(78, 0, 26, 1.8, 1.0);
     }
@@ -1196,6 +1228,7 @@ export async function build(ctx) {
     const grindWheel = P.cyl(0.7, 0.7, 0.14, greyMetal, { seg: 16, collide: false, shadow: false });
     grindWheel.rotation.z = Math.PI / 2; grindWheel.position.set(78, 1.9, -20);
     LIVE.add(grindWheel);
+    SPIN.push({ o: grindWheel, axis: 'y', speed: 24 });
     SPARK_EMIT.push({ x: 78, y: 1.7, z: -19.4, n: 70, spread: 3.6, up: 4.0, size: 0.08, color: 1 });
     if (lightCount < 22) {
       const gl = new T.PointLight(0xfff0d0, 3.0, 14, 2);
@@ -1203,7 +1236,6 @@ export async function build(ctx) {
       ctx.light(gl); lightCount++;
       RIGS.push({ mats: [], base: [], amp: 1.2, speed: 6.5, phase: 3.7, light: gl, lightBase: 3.0 });
     }
-    ctx.hidingSpot(83, 0, -26, 1.6, 0.85);
   }
 
   // ===========================================================================
@@ -1260,10 +1292,10 @@ export async function build(ctx) {
     }, 909);
     scr.castShadow = false;
     ctx.addDecor(scr);
-    for (const h of heaps) {
+    heaps.forEach((h, hi) => {
       proxy(h[2] * 1.25, h[3], h[2] * 1.25, h[0], h[3] / 2, h[1]);
-      ctx.hidingSpot(h[0] + h[2] * 0.85, 0, h[1] + h[2] * 0.5, 1.8, 0.9);
-    }
+      if (hi % 2 === 0) ctx.hidingSpot(h[0] + h[2] * 0.85, 0, h[1] + h[2] * 0.5, 1.8, 0.9);
+    });
 
     // magnet crane
     const mc = new T.Group();
@@ -1272,15 +1304,16 @@ export async function build(ctx) {
       proxy(1.0, 15, 1.0, -73, 7.5, s * 12);
     }
     put(mc, 1.4, 1.2, 26, -73, 15.4, 0, steelDark);
+    // magnet hangs from a pivot at the gantry beam so it swings properly
     const magnet = new T.Group();
-    const cbl = P.cyl(0.09, 0.09, 6.0, cableMat, { seg: 6, collide: false, shadow: false });
-    cbl.position.set(0, 8.6, 0); magnet.add(cbl);
-    const disc = P.cyl(2.2, 2.2, 0.8, blackMetal, { seg: 20, collide: false, shadow: true });
-    disc.position.set(0, 8.0, 0); magnet.add(disc);
-    magnet.position.set(-73, 0, -2);
-    mc.add(magnet);
+    magnet.position.set(-73, 14.8, -2);
+    const cbl = P.cyl(0.09, 0.09, 6.4, cableMat, { seg: 6, collide: false, shadow: false });
+    cbl.position.set(0, -6.4, 0); magnet.add(cbl);
+    const disc = P.cyl(2.2, 2.2, 0.8, blackMetal, { seg: 20, collide: false, shadow: false });
+    disc.position.set(0, -7.2, 0); magnet.add(disc);
     DETAIL.add(mc);
     LIVE.add(magnet);
+    SWAY.push({ o: magnet, amp: 0.07, speed: 0.42, phase: 1.1, travel: 8, tSpeed: 0.06, base: -2 });
 
     // containers + puddles
     const conts = [[-58, -64, 0x5a2a22, 0], [-92, -60, 0x24483f, 1], [-56, 52, 0x3a3a44, 2],
@@ -1293,7 +1326,7 @@ export async function build(ctx) {
       P.NOCOLLIDE(c);
       DETAIL.add(c);
       proxy(6.2, 2.62, 2.5, x, (i % 3 === 2 ? 2.62 : 0) + 1.31, z, (i % 4) * 0.42);
-      if (i % 3 === 0) ctx.hidingSpot(x + 3.6, 0, z + 1.8, 1.5, 0.85);
+      if (i % 4 === 0) ctx.hidingSpot(x + 3.6, 0, z + 1.8, 1.5, 0.85);
     });
     const puddleMat = M.solid({ color: 0x0c0f12, roughness: 0.04, metalness: 0.5, envMapIntensity: 2.4 });
     const puddleGeo = new T.CircleGeometry(1, 12).rotateX(-Math.PI / 2);
@@ -1338,20 +1371,23 @@ export async function build(ctx) {
 
     // stair shafts down from the casting floor
     const shafts = [
-      { s: SHAFT_A, axis: 'z', sign: 1, x: -35, z: -5.4 },
-      { s: SHAFT_B, axis: 'z', sign: -1, x: 27, z: -26.6 },
+      { s: SHAFT_A, axis: 'z', sign: 1, x: -35, z: SHAFT_A.z0 },
+      { s: SHAFT_B, axis: 'z', sign: -1, x: 27, z: SHAFT_B.z1 },
     ];
     for (const sh of shafts) {
       stairFlight(sh.x, sh.z, 0, UNDER.y, sh.axis, sh.sign, 2.4);
-      // guard rail round the open hole above
+      // Guard rail round the open hole above — three sides only; the edge you
+      // walk in over is left open.
       const s = sh.s;
       const w = s.x1 - s.x0, d = s.z1 - s.z0;
-      for (const q of [-1, 1]) railEdge(w, (s.x0 + s.x1) / 2, 0, (s.z0 + s.z1) / 2 + q * d / 2, false, true);
-      railEdge(d, s.x0, 0, (s.z0 + s.z1) / 2, true, true);
-      railEdge(d, s.x1, 0, (s.z0 + s.z1) / 2, true, true);
-      // ...then re-open the entry side
-      COL.children[COL.children.length - (sh.sign > 0 ? 4 : 3)].visible = false;
-      COL.children[COL.children.length - (sh.sign > 0 ? 4 : 3)].userData.collide = false;
+      const mxs = (s.x0 + s.x1) / 2, mzs = (s.z0 + s.z1) / 2;
+      const entry = sh.sign > 0 ? -1 : 1;
+      for (const q of [-1, 1]) {
+        if (q === entry) continue;
+        railEdge(w, mxs, 0, mzs + q * d / 2, false, true);
+      }
+      railEdge(d, s.x0, 0, mzs, true, true);
+      railEdge(d, s.x1, 0, mzs, true, true);
     }
 
     // support columns
@@ -1364,6 +1400,7 @@ export async function build(ctx) {
 
     // cooling water channels
     const waterMat = M.water({ color: 0x102028, opacity: 0.85, repeat: 12 });
+    TICKERS.push(waterMat.userData.tick);
     for (const cz of [-30, -4]) {
       const wpl = P.ground(74, 3.4, waterMat, { collide: false });
       wpl.position.set(-5, UNDER.y + 0.32, cz);
@@ -1434,8 +1471,6 @@ export async function build(ctx) {
     rub.position.set(-24, UNDER.y, -22); P.NOCOLLIDE(rub); DETAIL.add(rub);
     ctx.hidingSpot(-40, UNDER.y, -34, 2.0, 1.0);
     ctx.hidingSpot(30, UNDER.y, 6, 2.0, 1.0);
-    ctx.hidingSpot(-2, UNDER.y, -36, 2.0, 1.0);
-    ctx.hidingSpot(20, UNDER.y, -8, 1.8, 0.95);
     ctx.hidingSpot(-24, UNDER.y, -22, 1.8, 0.9);
   }
 
@@ -1479,7 +1514,6 @@ export async function build(ctx) {
     const rota2 = put(DETAIL, 1.1, 0.85, 0.03, LR.x1 - 0.24, 2.1, LR.z1 - 3.0, rotaMat, -Math.PI / 2);
     rota2.castShadow = false;
     ctx.hidingSpot(cx - 2.4, 0, cz, 1.8, 1.0);
-    ctx.hidingSpot(cx + 2.2, 0, LR.z1 - 2.4, 1.5, 0.9);
   }
 
   // scattered floor grime: wheelbarrows, tool boards, spilled sand, chains
@@ -1497,9 +1531,9 @@ export async function build(ctx) {
     for (const [x, z, ry] of [[-49.2, -20, Math.PI / 2], [39.2, 24, -Math.PI / 2], [-49.2, 20, Math.PI / 2]]) {
       put(DETAIL, 2.6, 1.6, 0.1, x, 1.9, z, woodDirty, ry);
       for (let i = 0; i < 8; i++) {
+        const dx = -1.1 + i * 0.3;
         put(DETAIL, 0.06, 0.7 + (i % 3) * 0.2, 0.06,
-          x + Math.cos(ry) * 0 - Math.sin(ry) * (-1.1 + i * 0.3),
-          1.9 + (i % 2) * 0.3, z + Math.cos(ry) * (-1.1 + i * 0.3), greyMetal);
+          x + dx * Math.cos(ry), 1.9 + (i % 2) * 0.3, z - dx * Math.sin(ry), greyMetal);
       }
     }
     // hanging chains and hooks in the roof space
@@ -1533,6 +1567,24 @@ export async function build(ctx) {
     }, 515);
     chunks.castShadow = false;
     ctx.addDecor(chunks);
+    // extractor fans turning in the north wall, high up
+    for (const [fx, fy] of [[-34, 30], [4, 30], [26, 30]]) {
+      const ring = new T.Mesh(new T.TorusGeometry(2.4, 0.22, 6, 22), blackMetal);
+      ring.position.set(fx, fy, HALL.z0 + 0.9); ring.castShadow = false;
+      DETAIL.add(ring);
+      put(DETAIL, 5.4, 5.4, 0.16, fx, fy, HALL.z0 + 1.2, M.emissive(0x24506e, 0.5));
+      const blades = new T.Group();
+      blades.position.set(fx, fy, HALL.z0 + 1.0);
+      for (let b = 0; b < 5; b++) {
+        const bl = P.boxC(4.2, 0.06, 0.42, blackMetal, { shadow: false });
+        bl.rotation.z = (b / 5) * Math.PI * 2;
+        bl.rotation.y = 0.35;
+        blades.add(bl);
+      }
+      LIVE.add(blades);
+      SPIN.push({ o: blades, axis: 'z', speed: 1.9 + fx * 0.01 });
+    }
+
     // signage at eye level
     const sg = P.sign('DANGER\nMOLTEN METAL', { background: 0x8a1a10, color: 0xffe4b0, height: 0.7, emissive: 0x521008 });
     sg.position.set(-49.0, 2.0, -12); sg.rotation.y = Math.PI / 2;
@@ -1662,9 +1714,9 @@ export async function build(ctx) {
     // L1  y = 4 (6)
     [-30, 5, -41], [10, 5, -41], [-46.5, 5, -22], [-46.5, 5, 26], [-24, 5, 41], [36, 5, 14],
     // L2  y = 9 (5)
-    [-38, 10, -21.5], [-16, 10, -21.5], [8, 10, -21.5], [-6, 10, -24.6], [32, 10, -2],
+    [-38, 10, -19.5], [-16, 10, -19.5], [8, 10, -19.5], [-6, 10, -24.6], [32, 10, -2],
     // L3  y = 15 (7)
-    [-42, 16, 0], [-24, 16, 0], [2, 16, 0], [22, 16, 0], [-30, 16, -19], [8, 16, -19], [-6, 16, -39],
+    [-42, 16, 0], [-24, 16, 0], [2, 16, 0], [22, 16, 0], [-30, 16, -19], [8, 16, -19], [-6, 16, -40],
     // L4  y = 22 (4)
     [-40, 23, -20], [-40, 23, 22], [0, 23, -34], [30, 23, 8],
     // L5  y = 30 (4)
@@ -1674,7 +1726,7 @@ export async function build(ctx) {
     // casting floor (5)
     [-42, 1, -12], [-2, 1, 10], [24, 1, 36], [34, 1, -20], [-20, 1, 38],
     // rolling mill (3, one on the mezzanine)
-    [56, 1, 8], [74, 1, 30], [62, 7, -26],
+    [56, 1, 8], [74, 1, 38], [62, 7, -26],
     // scrap yard (2)
     [-70, 1, -44], [-88, 1, 24],
     // undercroft (4)
@@ -1692,20 +1744,16 @@ export async function build(ctx) {
   // powerups
   ctx.pickup(-24, -4, 4, 'powerup:ghost');
   ctx.pickup(-40, 23, -34, 'powerup:nightvision');
-  ctx.pickup(66, 1, 2, 'powerup:dash');
+  ctx.pickup(66, 1, 8, 'powerup:dash');
   ctx.pickup(-64, 1, 58, 'powerup:jumpjet');
 
   // the dog, tucked under the pulpit console where nobody looks
   ctx.pickup(31.4, 9.45, 10.9, 'pup');
 
-  // hiding spots not already registered inline
+  // spots under and behind the catwalk network, not registered inline
   ctx.hidingSpot(-46.5, 4, -30, 1.6, 0.8);
-  ctx.hidingSpot(36, 4, 30, 1.6, 0.8);
   ctx.hidingSpot(-40, 15, -19, 1.6, 0.85);
-  ctx.hidingSpot(24, 22, -30, 1.6, 0.85);
   ctx.hidingSpot(-6, 15, -38, 1.8, 0.9);
-  ctx.hidingSpot(-14, 0, -12, 1.6, 0.7);
-  ctx.hidingSpot(30, 0, -2, 1.6, 0.7);
   ctx.hidingSpot(-46, 0, 44, 1.8, 0.85);
   ctx.hidingSpot(38, 0, 43, 1.8, 0.85);
 
@@ -1737,8 +1785,13 @@ export async function build(ctx) {
       c.g.position.x = -6 + Math.sin(t * 0.055 * c.dir + c.phase) * 32;
       c.trolley.position.z = Math.sin(t * 0.13 + c.phase) * 24;
     }
-    // --- magnet crane sway ---------------------------------------------------
-    // (magnet is the last LIVE child added by the yard block)
+    // --- hanging things swing, turning things turn ---------------------------
+    for (const s of SWAY) {
+      s.o.rotation.z = Math.sin(t * s.speed + s.phase) * s.amp;
+      s.o.rotation.x = Math.cos(t * s.speed * 0.77 + s.phase) * s.amp * 0.7;
+      if (s.travel) s.o.position.z = s.base + Math.sin(t * s.tSpeed) * s.travel;
+    }
+    for (const s of SPIN) s.o.rotation[s.axis] = t * s.speed;
 
     // --- bogie rolls along the rail ------------------------------------------
     for (const b of bogies) {
@@ -1811,15 +1864,6 @@ export async function build(ctx) {
     }
 
     // --- water ---------------------------------------------------------------
-    if (waterTick) waterTick(dt);
+    for (let i = 0; i < TICKERS.length; i++) TICKERS[i](dt);
   });
-
-  // grab the water material tick registered above (kept out of the hot loop)
-  var waterTick = null;
-  for (const o of LIVE.children) {
-    if (o.isMesh && o.material && o.material.userData && o.material.userData.tick) {
-      waterTick = o.material.userData.tick;
-      break;
-    }
-  }
 }

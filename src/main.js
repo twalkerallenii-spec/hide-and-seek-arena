@@ -346,7 +346,7 @@ class Game {
     this.controller.invertY = save.settings.invertY;
     this.controller.speedSprint = this.mutatorOn('nosprint') ? this.controller.speedWalk : 8.1;
     this.controller.jumpSpeed = this.mutatorOn('featherfoot') ? 10.5 : 8.2;
-    this.controller.climbZones = [];
+    this.controller.climbZones = collectClimbZones(this.world.root);
 
     // ---- audio -------------------------------------------------------------
     const snd = this.world.pendingSound;
@@ -573,6 +573,25 @@ class Game {
 }
 
 // ---------------------------------------------------------------- helpers --
+/**
+ * Ladders. Any object an arena tags `userData.climbable` becomes a volume the
+ * controller treats as climbable — props.ladder() sets the flag, so a ladder
+ * dropped into a scene just works.
+ */
+function collectClimbZones(root) {
+  const zones = [];
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!o.userData?.climbable) return;
+    const box = new THREE.Box3().setFromObject(o);
+    if (!isFinite(box.min.x) || box.isEmpty()) return;
+    // Widen so you don't have to be pixel-perfect on the rungs.
+    box.expandByVector(new THREE.Vector3(0.55, 0.2, 0.55));
+    zones.push({ box });
+  });
+  return zones;
+}
+
 function frame() { return new Promise(r => requestAnimationFrame(() => r())); }
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function fmtTime(s) {

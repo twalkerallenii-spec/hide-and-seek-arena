@@ -165,6 +165,18 @@ function wallStrip(visGroup, x1, z1, x2, z2, yBot, yTop, thick, material, gaps =
   for (let v = panel; v < len - 0.05; v += panel) cuts.add(Math.round(v * 100) / 100);
   const C = [...cuts].sort((a, b) => a - b);
 
+  // Colliders are merged across consecutive solid panels — one long invisible
+  // box per unbroken stretch instead of one per panel.
+  const solid = opts.collide !== false;
+  let runA = null, runB = null;
+  const flushRun = () => {
+    if (runA === null) return;
+    const mid = (runA + runB) / 2;
+    proxyBox(runB - runA, yTop - yBot, thick + 0.12,
+      x1 + ux * mid, (yBot + yTop) / 2, z1 + uz * mid, ry);
+    runA = null;
+  };
+
   for (let i = 0; i < C.length - 1; i++) {
     const a = C[i], b = C[i + 1], mid = (a + b) / 2, w = b - a;
     if (w < 0.02) continue;
@@ -176,12 +188,21 @@ function wallStrip(visGroup, x1, z1, x2, z2, yBot, yTop, thick, material, gaps =
       m.position.set(px, (y0 + y1) / 2, pz);
       m.rotation.y = ry;
       visGroup.add(m);
-      if (opts.collide !== false) proxyBox(w, y1 - y0, thick + 0.12, px, (y0 + y1) / 2, pz, ry);
     };
-    if (!gap) { put(yBot, yTop); continue; }
+    if (!gap) {
+      put(yBot, yTop);
+      if (solid) { if (runA === null) runA = a; runB = b; }
+      continue;
+    }
     put(yBot, gap[2]);          // sill below the opening
     put(gap[3], yTop);          // lintel above it
+    if (solid) {
+      flushRun();
+      if (gap[2] - yBot > 0.05) proxyBox(w, gap[2] - yBot, thick + 0.12, px, (yBot + gap[2]) / 2, pz, ry);
+      if (yTop - gap[3] > 0.05) proxyBox(w, yTop - gap[3], thick + 0.12, px, (gap[3] + yTop) / 2, pz, ry);
+    }
   }
+  if (solid) flushRun();
   return { len, ry, H };
 }
 
@@ -402,11 +423,11 @@ export async function build(ctx) {
   // ---------------------------------------------------------------------------
   M = {
     tileWall: ctx.mat.surface('tile', {
-      color: 0x36414f, grout: 0x121820, tiles: 6, repeat: 4, size: 512, seed: 11,
+      color: 0x36414f, grout: 0x121820, tiles: 6, repeat: 4, size: 256, seed: 11,
       roughness: 0.26, metalness: 0.06, envMapIntensity: 1.7,
     }),
     tileWallDeep: ctx.mat.surface('tile', {
-      color: 0x1f2b37, grout: 0x0d1218, tiles: 5, repeat: 4, size: 512, seed: 12,
+      color: 0x1f2b37, grout: 0x0d1218, tiles: 5, repeat: 4, size: 256, seed: 12,
       roughness: 0.3, metalness: 0.05, envMapIntensity: 1.5,
     }),
     tileFloor: ctx.mat.surface('tile', {
@@ -414,23 +435,23 @@ export async function build(ctx) {
       roughness: 0.17, metalness: 0.14, envMapIntensity: 2.1,
     }),
     platFloor: ctx.mat.surface('tile', {
-      color: 0x242b33, grout: 0x0e1116, tiles: 8, repeat: 4, size: 512, seed: 14,
+      color: 0x242b33, grout: 0x0e1116, tiles: 8, repeat: 4, size: 256, seed: 14,
       roughness: 0.2, metalness: 0.12, envMapIntensity: 1.9,
     }),
-    concrete: ctx.mat.surface('concrete', { color: 0x474d55, repeat: 3, size: 512, seed: 21 }),
+    concrete: ctx.mat.surface('concrete', { color: 0x474d55, repeat: 3, size: 256, seed: 21 }),
     concreteDark: ctx.mat.surface('concrete', {
-      color: 0x1f242b, repeat: 3, size: 512, seed: 22, roughness: 0.7, envMapIntensity: 0.9,
+      color: 0x1f242b, repeat: 3, size: 128, seed: 22, roughness: 0.7, envMapIntensity: 0.9,
     }),
     concreteWet: ctx.mat.surface('concrete', {
-      color: 0x2a3038, repeat: 3, size: 512, seed: 23,
+      color: 0x2a3038, repeat: 3, size: 256, seed: 23,
       roughness: 0.3, metalness: 0.1, envMapIntensity: 1.6,
     }),
     asphalt: ctx.mat.surface('asphalt', {
-      color: 0x1b1e23, repeat: 4, size: 512, seed: 31,
+      color: 0x1b1e23, repeat: 4, size: 256, seed: 31,
       roughness: 0.21, metalness: 0.06, envMapIntensity: 2.0,
     }),
     facade: ctx.mat.surface('brick', {
-      color: 0x2c292e, mortar: 0x1e2026, rows: 14, repeat: 3, size: 512, seed: 41,
+      color: 0x2c292e, mortar: 0x1e2026, rows: 14, repeat: 3, size: 128, seed: 41,
       roughness: 0.55, envMapIntensity: 1.1,
     }),
     panelMetal: ctx.mat.surface('metalPanel', {
@@ -438,7 +459,7 @@ export async function build(ctx) {
       roughness: 0.34, metalness: 0.8, envMapIntensity: 1.5,
     }),
     shutter: ctx.mat.surface('corrugated', {
-      color: 0x333a43, ribs: 18, repeat: 2, size: 256, seed: 52,
+      color: 0x333a43, ribs: 18, repeat: 2, size: 128, seed: 52,
       roughness: 0.42, metalness: 0.7, envMapIntensity: 1.2,
     }),
     rust: ctx.mat.surface('rustMetal', {
@@ -446,14 +467,14 @@ export async function build(ctx) {
       roughness: 0.7, metalness: 0.6,
     }),
     trainSkin: ctx.mat.surface('corrugated', {
-      color: 0x6b7683, ribs: 44, repeat: 2, size: 512, seed: 54,
+      color: 0x6b7683, ribs: 44, repeat: 2, size: 256, seed: 54,
       roughness: 0.31, metalness: 0.75, envMapIntensity: 1.7,
     }),
     ceilPanel: ctx.mat.surface('metalPanel', {
-      color: 0x262c34, panels: 6, repeat: 3, size: 256, seed: 55,
+      color: 0x262c34, panels: 6, repeat: 3, size: 128, seed: 55,
       roughness: 0.62, metalness: 0.35,
     }),
-    rockDark: ctx.mat.surface('rock', { color: 0x363b42, repeat: 1, size: 256, seed: 61 }),
+    rockDark: ctx.mat.surface('rock', { color: 0x363b42, repeat: 1, size: 128, seed: 61 }),
     grimeFlat: ctx.mat.surface('flat', { color: 0x171b21, repeat: 1, size: 128, rough: 0.75 }),
   };
 
@@ -774,26 +795,26 @@ export async function build(ctx) {
   // Caved-in rubble wall at the end of the north bore — the deep hiding pocket.
   const caveIn = P.rubble(4.2, 34, M.rockDark, 909);
   caveIn.position.set(87, -8, -5);
-  ctx.addDecor(caveIn);
+  P.NOCOLLIDE(caveIn); gTunnel.add(caveIn);
   proxyBox(3.0, 6.0, 6.2, 88.4, -5, -5);
   for (let i = 0; i < 9; i++) {
     const slab = P.boxC(rDebris.range(0.6, 2.2), rDebris.range(0.2, 0.5), rDebris.range(0.8, 2.4),
       M.concrete, { collide: false, shadow: true });
     slab.position.set(85 + rDebris.range(-2.5, 2.5), -7.4 + i * 0.42, -5 + rDebris.range(-2.4, 2.4));
     slab.rotation.set(rDebris.range(-0.5, 0.5), rDebris.range(0, 3.1), rDebris.range(-0.5, 0.5));
-    ctx.addDecor(slab);
+    gTunnel.add(slab);
   }
   // South bore dead-ends against the cap; a collapsed steel arch leans across it.
   for (let i = 0; i < 5; i++) {
     const arch = P.boxC(0.3, 5.2, 0.3, M.rust, { collide: false, shadow: true });
     arch.position.set(90 + i * 0.9, -5.3, 4 + rTun.range(-2, 2));
     arch.rotation.z = rTun.range(-0.7, 0.7); arch.rotation.x = rTun.range(-0.3, 0.3);
-    ctx.addDecor(arch);
+    gTunnel.add(arch);
   }
   // West stub rubble cap.
   const westCave = P.rubble(3.4, 22, M.rockDark, 313);
   westCave.position.set(-66, -8, 5);
-  ctx.addDecor(westCave);
+  P.NOCOLLIDE(westCave); gTunnel.add(westCave);
 
   // Widely spaced emergency lamps: geometry everywhere, three real lights.
   const lampPositions = [
@@ -969,14 +990,16 @@ export async function build(ctx) {
     }
   }
   carVis.add(strut(new THREE.Vector3(-HL, -0.6, -1.3), new THREE.Vector3(-HL - 2.6, -1.0, -2.4), 0.05, M.cable));
-  ctx.addDecor(P.rubble(2.6, 16, M.rockDark, 771).translateX(6).translateZ(3.4).translateY(-8));
+  const carRubble = P.rubble(2.6, 16, M.rockDark, 771);
+  carRubble.position.set(6, -8, 3.4);
+  P.NOCOLLIDE(carRubble); gPlatform.add(carRubble);
   gTrain.add(carVis);
   ctx.add(carCol);
 
   // Torn-off door leaf lying in the water beside the carriage.
   const leaf = P.boxC(1.4, 0.08, 2.0, M.trainSkin, { collide: false, shadow: true });
   leaf.position.set(4.5, -7.55, 3.4); leaf.rotation.set(0.1, 0.4, 0.06);
-  ctx.addDecor(leaf);
+  gPlatform.add(leaf);
 
   // ===========================================================================
   // 8. LEVEL 1 — THE CONCOURSE (y = 0). Shell, ceiling, columns, mezzanine.
@@ -1099,12 +1122,17 @@ export async function build(ctx) {
       w.position.set(sx, -3.9, sz); gPlatform.add(w);
       proxyBox(sx === -40 ? 3.4 : 0.3, 6.2, sx === -40 ? 0.3 : 3.4, sx, -3.9, sz);
     }
-    const hatch = P.boxC(3.4, 0.12, 3.4, M.hazard, { collide: false, shadow: false });
-    hatch.position.set(-40, 0.06, 14); gConcourse.add(hatch);
+    // Hazard trim framing the open hatch — the shaft itself stays clear.
+    for (const [hx, hz, hw, hd] of [[-40, 12.4, 3.4, 0.22], [-40, 15.6, 3.4, 0.22],
+                                    [-41.6, 14, 0.22, 3.4], [-38.4, 14, 0.22, 3.4]]) {
+      const trim = P.boxC(hw, 0.1, hd, M.hazard, { collide: false, shadow: false });
+      trim.position.set(hx, 0.05, hz); gConcourse.add(trim);
+    }
   }
 
   // Guard rails around every floor opening so the hall reads as a real station.
   for (const h of FLOOR_HOLES) {
+    if (h === FLOOR_HOLES[2]) continue;   // the ladder hatch is left open
     const w = h[1] - h[0], d = h[3] - h[2], cx = (h[0] + h[1]) / 2, cz = (h[2] + h[3]) / 2;
     const edges = [
       [w, cx, h[2], 0], [w, cx, h[3], 0], [d, h[0], cz, Math.PI / 2], [d, h[1], cz, Math.PI / 2],
@@ -1216,7 +1244,7 @@ export async function build(ctx) {
   {
     const tipped = P.boxC(1.1, 1.95, 0.8, M.panelMetal, { collide: false, shadow: true });
     tipped.position.set(53.5, 0.42, 21); tipped.rotation.set(0, 0.6, Math.PI / 2 - 0.1);
-    ctx.addDecor(tipped);
+    gConcourse.add(tipped);
     proxyBox(2.1, 1.2, 1.4, 53.5, 0.5, 21, 0.6);
   }
 
@@ -1277,13 +1305,13 @@ export async function build(ctx) {
   // ===========================================================================
   {
     const mound = P.rubble(7.5, 46, M.rockDark, 4242);
-    mound.position.set(7, 0, -2); ctx.addDecor(mound);
+    mound.position.set(7, 0, -2); P.NOCOLLIDE(mound); gConcourse.add(mound);
     for (let i = 0; i < 14; i++) {
       const s = P.boxC(rDebris.range(1.2, 4.0), rDebris.range(0.25, 0.6), rDebris.range(1.2, 3.6),
         M.asphalt, { collide: false, shadow: true });
       s.position.set(7 + rDebris.range(-5.5, 5.5), 0.3 + i * 0.22, -2 + rDebris.range(-5, 5));
       s.rotation.set(rDebris.range(-0.45, 0.45), rDebris.range(0, 3.14), rDebris.range(-0.45, 0.45));
-      ctx.addDecor(s);
+      gConcourse.add(s);
     }
     proxyBox(9, 2.4, 8, 7, 1.0, -2);
     proxyBox(5, 3.6, 4.5, 6, 1.6, -2);
@@ -1292,7 +1320,7 @@ export async function build(ctx) {
       const a = rDebris.range(0, 6.28), r = rDebris.range(0.5, 6.5);
       const b0 = new THREE.Vector3(7 + Math.cos(a) * r, 1.2, -2 + Math.sin(a) * r);
       const b1 = b0.clone().add(new THREE.Vector3(rDebris.range(-1.4, 1.4), rDebris.range(1.2, 3.4), rDebris.range(-1.4, 1.4)));
-      ctx.addDecor(strut(b0, b1, 0.028, M.rust));
+      gConcourse.add(strut(b0, b1, 0.028, M.rust));
     }
     // broken slab edge hanging from the hole
     for (const [ex, ez, w, d] of [[0.2, -2, 0.4, 12], [13.8, -2, 0.4, 12], [7, -7.8, 14, 0.4], [7, 3.8, 14, 0.4]]) {
@@ -1477,7 +1505,7 @@ export async function build(ctx) {
       ctx.mat.solid({ color: 0x0b0f16, roughness: 0.9 }), { collide: false, shadow: false });
     tower.position.set(Math.cos(a) * dist, L.streetY + hgt / 2 - 6, Math.sin(a) * dist);
     tower.rotation.y = hash01(i * 5) * 1.5;
-    ctx.addDecor(tower);
+    gStreet.add(tower);
     const beacon = P.boxC(0.9, 0.9, 0.9, ctx.mat.emissive(0xff2a2a, 4), { collide: false, shadow: false });
     beacon.position.set(tower.position.x, L.streetY + hgt - 6, tower.position.z);
     ctx.addDecor(beacon);
@@ -1539,9 +1567,10 @@ export async function build(ctx) {
     ctx.addDecor(grp);
     TICKS.push((dt, t) => { grp.position.y = yTop - ((t * speed) % spacing); });
   }
-  rainLayer(-37, 37, -17, 17, L.streetY + 0.2, 22, 2.6, 150, 17, 1.15, 0.4, 7701);
-  rainLayer(-37, 37, -17, 17, L.streetY + 0.2, 22, 3.4, 70, 26, 1.9, 0.22, 7702);
-  rainLayer(0.6, 13.4, -7.4, 3.4, 0.1, 9.0, 2.2, 42, 15, 1.0, 0.5, 7703);
+  // yTop is the crest of the falling column; streaks reach down to yTop - H.
+  rainLayer(-37, 37, -17, 17, L.streetY + 22, 22, 2.6, 150, 17, 1.15, 0.4, 7701);
+  rainLayer(-37, 37, -17, 17, L.streetY + 22, 22, 3.4, 70, 26, 1.9, 0.22, 7702);
+  rainLayer(0.6, 13.4, -7.4, 3.4, L.streetY + 0.1, 9.0, 2.2, 42, 15, 1.0, 0.5, 7703);
 
   // Slow drips off the broken slab edge, straight down the light shaft.
   const dripMat = ctx.mat.emissive(0x9fd0ff, 2.2);
@@ -1669,13 +1698,3 @@ export async function build(ctx) {
     for (let i = 0; i < TICKS.length; i++) TICKS[i](dt, t);
   });
 }
-
-
-
-
-
-
-}
-
-
-

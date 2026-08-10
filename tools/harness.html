@@ -1,0 +1,204 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>PENDING</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  body { background:#000; color:#0f0; font:12px/1.4 monospace; margin:0; padding:12px; }
+  pre { white-space: pre-wrap; }
+  canvas { position:fixed; right:0; bottom:0; width:320px; height:180px; border:1px solid #333; }
+</style>
+</head>
+<body>
+<pre id="out">running…</pre>
+<canvas id="gl"></canvas>
+<script type="module">
+// Headless arena validator.
+//
+//   harness.html?arena=<id>            build one arena
+//   harness.html?arena=all             build every arena in sequence
+//
+// Results are written to #out as JSON and mirrored into document.title so a
+// `--dump-dom` run can be parsed without a devtools connection.
+
+import * as THREE from 'three';
+import { Renderer } from '../src/engine/renderer.js';
+import { World } from '../src/engine/world.js';
+import { FirstPersonController } from '../src/engine/controller.js';
+import { loadArena, ARENA_LIST } from '../src/arenas/index.js';
+
+const out = document.getElementById('out');
+const errors = [];
+window.addEventListener('error', e => errors.push('window.error: ' + (e.message || e)));
+window.addEventListener('unhandledrejection', e => errors.push('unhandled: ' + (e.reason?.message || e.reason)));
+const origError = console.error;
+console.error = (...a) => { errors.push('console.error: ' + a.map(String).join(' ').slice(0, 300)); origError(...a); };
+
+function finish(payload) {
+  const json = JSON.stringify(payload, null, 2);
+  out.textContent = json;
+  document.title = 'DONE ' + (payload.results?.every(r => r.ok) ? 'PASS' : 'FAIL');
+  window.__result = payload;
+  const marker = document.createElement('div');
+  marker.id = 'harness-done';
+  document.body.appendChild(marker);
+}
+
+function countScene(root) {
+  let meshes = 0, tris = 0, instanced = 0, lights = 0, shadowLights = 0, materials = new Set();
+  root.traverse(o => {
+    if (o.isMesh || o.isInstancedMesh) {
+      meshes++;
+      if (o.isInstancedMesh) instanced += o.count;
+      const g = o.geometry;
+      const n = g?.index ? g.index.count / 3 : (g?.attributes?.position?.count || 0) / 3;
+      tris += n * (o.isInstancedMesh ? o.count : 1);
+      if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => materials.add(m.uuid));
+    }
+    if (o.isLight) { lights++; if (o.castShadow) shadowLights++; }
+  });
+  return { meshes, tris: Math.round(tris), instanced, lights, shadowLights, materials: materials.size };
+}
+
+async function testArena(id, renderer, world, controller) {
+  const r = { id, ok: false, errors: [], warnings: [] };
+  const before = errors.length;
+  const t0 = performance.now();
+  try {
+    const mod = await loadArena(id);
+    if (mod.broken) r.errors.push('module failed to import — fallback used');
+    const meta = mod.meta;
+    r.name = meta.name;
+
+    // --- meta contract ---
+    for (const k of ['id', 'name', 'spawn', 'bounds']) {
+      if (meta[k] === undefined) r.errors.push(`meta.${k} missing`);
+    }
+    if (!Array.isArray(meta.spawn) || meta.spawn.length !== 3 || meta.spawn.some(n => typeof n !== 'number' || !isFinite(n))) {
+      r.errors.push('meta.spawn must be 3 finite numbers');
+    }
+
+    renderer.attach(world.scene);
+    const ctx = await world.load(meta, mod.build, 'medium');
+    r.buildMs = Math.round(performance.now() - t0);
+
+    // --- scene stats ---
+    r.scene = countScene(world.root);
+    if (r.scene.meshes === 0) r.errors.push('arena added no meshes');
+    if (r.scene.shadowLights > 4) r.warnings.push(`${r.scene.shadowLights} shadow-casting lights (budget 4)`);
+    if (r.scene.lights > 30) r.warnings.push(`${r.scene.lights} lights (budget ~24)`);
+    if (r.scene.tris > 4_000_000) r.warnings.push(`${(r.scene.tris / 1e6).toFixed(1)}M triangles`);
+    if (r.buildMs > 4000) r.warnings.push(`build took ${r.buildMs}ms`);
+
+    // --- gameplay contract ---
+    const p = world.pickups;
+    const count = (t) => p.filter(x => x.type === t).length;
+    const powerups = p.filter(x => String(x.type).startsWith('powerup:')).length;
+    r.pickups = { coins: count('coin'), batteries: count('battery'), powerups, pups: count('pup'), total: p.length };
+    r.hidingSpots = world.hidingSpots.length;
+    if (r.pickups.pups !== 1) r.errors.push(`expected exactly 1 pup, found ${r.pickups.pups}`);
+    if (r.pickups.coins < 20) r.warnings.push(`only ${r.pickups.coins} coins (spec: 25-45)`);
+    if (r.pickups.batteries < 3) r.warnings.push(`only ${r.pickups.batteries} batteries (spec: 3-6)`);
+    if (powerups < 2) r.warnings.push(`only ${powerups} power-ups (spec: 2-5)`);
+    if (r.hidingSpots < 10) r.warnings.push(`only ${r.hidingSpots} hiding spots (spec: 10-20+)`);
+    for (const q of p) {
+      if (!q.pos || !isFinite(q.pos.x) || !isFinite(q.pos.y) || !isFinite(q.pos.z)) {
+        r.errors.push('a pickup has a non-finite position'); break;
+      }
+    }
+
+    // --- collision ---
+    const t1 = performance.now();
+    const n = controller.buildCollision(world.root);
+    r.collisionMeshes = n;
+    r.collisionMs = Math.round(performance.now() - t1);
+    if (n === 0) r.errors.push('no collidable meshes — the player would fall forever');
+    if (r.collisionMs > 3000) r.warnings.push(`octree build took ${r.collisionMs}ms`);
+
+    // --- spawn sanity: is the player standing inside something? ---
+    controller.teleport(meta.spawn[0], meta.spawn[1], meta.spawn[2]);
+    const hit = controller.octree.capsuleIntersect(controller.collider);
+    if (hit && hit.depth > 0.25) r.errors.push(`spawn is inside geometry (penetration ${hit.depth.toFixed(2)}m)`);
+
+    // --- does the player land on floor, or fall out of the world? ---
+    controller.enabled = true;
+    controller.velocity.set(0, 0, 0);
+    let landed = false;
+    for (let i = 0; i < 180; i++) {
+      controller.update(1 / 60);
+      if (controller.onGround) { landed = true; break; }
+    }
+    r.landedAfter = landed ? 'yes' : 'NO';
+    r.spawnRestY = +controller.position.y.toFixed(2);
+    if (!landed) r.errors.push('player never reached the ground within 3s of spawning');
+    else if (controller.position.y < meta.spawn[1] - 12) {
+      r.warnings.push(`fell ${(meta.spawn[1] - controller.position.y).toFixed(1)}m before landing`);
+    }
+    controller.enabled = false;
+
+    // --- run a few update ticks to catch onUpdate crashes ---
+    const uErrs = [];
+    for (const fn of world.updates) {
+      try { fn(1 / 60, 1); fn(1 / 60, 2.5); } catch (e) { uErrs.push(String(e.message || e)); }
+    }
+    if (uErrs.length) r.errors.push(`onUpdate threw: ${[...new Set(uErrs)].slice(0, 3).join(' | ')}`);
+
+    // --- render two frames for real ---
+    renderer.camera.position.set(meta.spawn[0], meta.spawn[1] + 1.7, meta.spawn[2]);
+    renderer.camera.lookAt(meta.spawn[0] + 10, meta.spawn[1] + 1.5, meta.spawn[2] + 10);
+    renderer.render(0.016);
+    renderer.render(0.016);
+    r.drawCalls = renderer.gl.info.render.calls;
+    r.programs = renderer.gl.info.programs?.length ?? -1;
+    if (r.drawCalls > 1400) r.warnings.push(`${r.drawCalls} draw calls from spawn (budget ~900)`);
+
+  } catch (e) {
+    r.errors.push('THREW: ' + (e?.stack || e?.message || String(e)).split('\n').slice(0, 3).join(' / '));
+  }
+
+  const newErrs = errors.slice(before);
+  if (newErrs.length) r.errors.push(...newErrs.slice(0, 4));
+  r.ok = r.errors.length === 0;
+  return r;
+}
+
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const which = params.get('arena') || 'all';
+  const ids = which === 'all' ? ARENA_LIST.map(a => a.id) : which.split(',');
+
+  let renderer, world, controller;
+  try {
+    renderer = new Renderer(document.getElementById('gl'), 'medium');
+    world = new World(renderer);
+    controller = new FirstPersonController(renderer.camera, document.getElementById('gl'));
+  } catch (e) {
+    finish({ fatal: 'renderer init failed: ' + (e.message || e), results: [] });
+    return;
+  }
+
+  const results = [];
+  for (const id of ids) {
+    out.textContent = 'building ' + id + '…';
+    results.push(await testArena(id, renderer, world, controller));
+    await new Promise(r => setTimeout(r, 30));
+  }
+
+  finish({
+    ua: navigator.userAgent.slice(0, 60),
+    pass: results.filter(r => r.ok).length,
+    fail: results.filter(r => !r.ok).length,
+    results,
+  });
+})();
+</script>
+</body>
+</html>

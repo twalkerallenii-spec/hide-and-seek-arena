@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "type": "module",
+  "name": "hide-and-seek-arena",
+  "private": true,
+  "scripts": {
+    "check": "bash tools/check.sh",
+    "validate": "node tools/validate.mjs",
+    "serve": "python3 -m http.server 8080"
+  }
+}

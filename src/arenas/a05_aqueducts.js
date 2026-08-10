@@ -92,32 +92,33 @@ export async function build(ctx) {
   };
 
   // ---------------------------------------------------------------------------
-  // §0  MATERIALS  (17 surface() calls — well under the 28 budget)
+  // §0  MATERIALS. Only 12 surface() calls, all 256² except the hero stone at
+  // 384² — procedural texture generation dominates arena load time, so the
+  // three water bodies deliberately share one `repeat` (= one cached normal
+  // map) and the root material reuses the exact opts props.tree() asks for.
   // ---------------------------------------------------------------------------
 
-  const mStone = M.surface('concrete', { color: 0x7f8b78, repeat: 3, size: 512, seed: 5 });
+  const mStone = M.surface('concrete', { color: 0x7f8b78, repeat: 3, size: 384, seed: 5 });
   const mStoneWet = M.surface('concrete', { color: 0x53645a, repeat: 3, size: 256, seed: 7 });
-  const mTemple = M.surface('marble', { color: 0x94a390, vein: 0x44573e, repeat: 3, size: 512, rough: 0.74 });
+  const mTemple = M.surface('marble', { color: 0x94a390, vein: 0x44573e, repeat: 3, size: 256, rough: 0.74 });
   const mTempleDk = M.surface('marble', { color: 0x6b7c6b, vein: 0x2e3c30, repeat: 2, size: 256, rough: 0.82 });
   const mColumn = M.surface('marble', { color: 0x8b9987, vein: 0x3c4c3b, repeat: 2, size: 256, rough: 0.8 });
   const mDark = M.surface('rock', { color: 0x3e4d47, repeat: 3, size: 256, seed: 9 });
   const mPave = M.surface('tile', { color: 0x78846f, grout: 0x3b4535, tiles: 5, repeat: 3, size: 256, seed: 3 });
-  const mPaveWet = M.surface('tile', { color: 0x4c5b4f, grout: 0x29332a, tiles: 5, repeat: 3, size: 256, seed: 4 });
   const mSoil = M.surface('dirt', { color: 0x4a4531, repeat: 4, size: 256, seed: 11 });
   const mBed = M.surface('rock', { color: 0x3a4842, repeat: 6, size: 256, seed: 37 });
   const mCliff = M.surface('rock', { color: 0x5c695b, repeat: 3, size: 256, seed: 17 });
   const mRubble = M.surface('concrete', { color: 0x8b9483, repeat: 1, size: 256, seed: 23 });
-  const mBoulder = M.surface('rock', { color: 0x56614f, repeat: 1, size: 256, seed: 29 });
-  const mSlime = M.surface('organic', { color: 0x36442e, wet: 0x152319, repeat: 3, size: 256, seed: 31 });
-  const mRoot = M.surface('wood', { color: 0x3b2f1f, repeat: 2, size: 256, planks: 2, seed: 41 });
-  const mGrassGnd = M.surface('grass', { color: 0x2b4522, dry: 0x545a2c, repeat: 4, size: 256, seed: 13 });
+  // exact opts props.tree() uses for bark, so this is a free cache hit
+  const mRoot = M.surface('wood', { color: 0x4a3524, repeat: 1, size: 256, planks: 2, rough: 0.95 });
   const mIron = M.metal(0x2a2f2c, 0.72);
   const mInvis = M.solid({ color: 0x000000 });
 
   // water — three separate instances so each can drift on its own clock
-  const wOpen = M.water({ color: 0x11424a, opacity: 0.9, transmission: 0.28, repeat: 24 });
-  const wChannel = M.water({ color: 0x1a5a58, opacity: 0.82, transmission: 0.32, repeat: 10 });
-  const wBlack = M.water({ color: 0x040f0e, opacity: 0.96, transmission: 0.1, repeat: 8 });
+  // identical `repeat` => all three share one cached normal-map generation
+  const wOpen = M.water({ color: 0x11424a, opacity: 0.90, transmission: 0.28, repeat: 14 });
+  const wChannel = M.water({ color: 0x1a5a58, opacity: 0.82, transmission: 0.32, repeat: 14 });
+  const wBlack = M.water({ color: 0x040f0e, opacity: 0.96, transmission: 0.10, repeat: 14 });
 
   // ---------------------------------------------------------------------------
   // §0.1  PAINTED TEXTURES  (canvas → texture, reused across many meshes)
@@ -367,6 +368,7 @@ export async function build(ctx) {
     b.visible = false;
     b.castShadow = false; b.receiveShadow = false;
     b.userData.collide = true;
+    b.userData.dims = [w, h, d];   // handy when auditing pickup placement
     b.position.set(x, y, z);
     if (rotY) b.rotation.y = rotY;
     proxies.add(b);
@@ -413,13 +415,13 @@ export async function build(ctx) {
   }
 
   /** Coursed masonry filling the spandrel above an arch, up to `topY`. */
-  function spandrel(halfSpan, r, springY, topY, depth, material, slices = 7) {
+  function spandrel(halfSpan, r, springY, topY, depth, material, slices = 7, ringT = 1.05) {
     const g = new THREE.Group();
     const w = (halfSpan * 2) / slices;
     for (let i = 0; i < slices; i++) {
       const xc = -halfSpan + w * (i + 0.5);
       const inner = Math.max(0, r * r - xc * xc);
-      const arch = springY + Math.sqrt(inner) + (inner > 0 ? 1.05 : 0);
+      const arch = springY + Math.sqrt(inner) + (inner > 0 ? ringT : 0);
       const y0 = Math.max(springY, arch);
       if (topY - y0 < 0.2) continue;
       const b = P.boxC(w * 1.02, topY - y0, depth, material);
@@ -649,37 +651,36 @@ export async function build(ctx) {
       solidBox(4.4, T1_TOP - T0_CORN, 5.8, x, (T0_CORN + T1_TOP) / 2, AQ_Z);
     }
 
-    // --- tier 0 cornice ------------------------------------------------------
-    const corn = P.boxC(AQ_SPAN + 1.2, 0.6, 7.2, mStone);
-    corn.position.set(x + AQ_SPAN / 2, T0_TOP + 0.3, AQ_Z);
-    if (k < AQ_PIERS - 1) aq.add(corn);
-
     if (k >= AQ_PIERS - 1) continue;
 
     const mid = x + AQ_SPAN / 2;
     const broken = mid > GAP_X0 && mid < GAP_X1;
 
     // --- tier 0 arch ---------------------------------------------------------
+    // springing chosen so the extrados lands exactly on the tier top
     const a0 = archRing(5.5, 1.1, 6.4, mStone, 11);
-    a0.position.set(mid, 5.5, AQ_Z);
+    a0.position.set(mid, T0_TOP - 6.6, AQ_Z);
     if (broken) {
-      // half the ring has fallen — keep the springing stones only
-      a0.children.slice(3, 8).forEach(c => c.visible = false);
+      // the crown has fallen — only the springing stones are left clinging on
+      a0.children.slice(2, 9).slice().forEach(c => a0.remove(c));
     }
     aq.add(a0);
-    aq.add((() => {
-      const s = spandrel(AQ_SPAN / 2, 5.5, 5.5, T0_TOP, 6.4, mStone, 7);
-      s.position.set(mid, 0, AQ_Z);
-      return s;
-    })());
 
-    if (broken) continue;
+    if (broken) continue;   // no spandrel, no cornice: a clean 16 m breach
+
+    // --- tier 0 cornice + spandrel -------------------------------------------
+    const sp0 = spandrel(AQ_SPAN / 2, 5.5, T0_TOP - 6.6, T0_TOP, 6.4, mStone, 7, 1.1);
+    sp0.position.set(mid, 0, AQ_Z);
+    aq.add(sp0);
+    const corn = P.boxC(AQ_SPAN + 1.2, 0.6, 7.2, mStone);
+    corn.position.set(mid, T0_TOP + 0.3, AQ_Z);
+    aq.add(corn);
 
     // --- tier 1 arch + spandrel ---------------------------------------------
     const a1 = archRing(5.5, 0.9, 5.4, mStone, 11);
-    a1.position.set(mid, 15.0, AQ_Z);
+    a1.position.set(mid, T1_TOP - 6.4, AQ_Z);
     aq.add(a1);
-    const s1 = spandrel(AQ_SPAN / 2, 5.5, 15.0, T1_TOP, 5.4, mStone, 7);
+    const s1 = spandrel(AQ_SPAN / 2, 5.5, T1_TOP - 6.4, T1_TOP, 5.4, mStone, 7, 0.9);
     s1.position.set(mid, 0, AQ_Z);
     aq.add(s1);
     const c1 = P.boxC(AQ_SPAN + 1.0, 0.5, 6.2, mStone);
@@ -699,7 +700,7 @@ export async function build(ctx) {
     const a = archRing(1.25, 0.55, 4.5, mStone, 7);
     a.position.set(mid, 22.9, AQ_Z);
     aq.add(a);
-    const s = spandrel(2, 1.25, 22.9, T2_TOP, 4.5, mStone, 3);
+    const s = spandrel(2, 1.25, 22.9, T2_TOP, 4.5, mStone, 3, 0.55);
     s.position.set(mid, 0, AQ_Z);
     aq.add(s);
   }
@@ -712,6 +713,8 @@ export async function build(ctx) {
     aq.add(slab);
     solidBox(8.1, 0.5, 5.9, x + 4, DECK_Y - 0.25, AQ_Z);
     for (const sz of [-1, 1]) {
+      // the two climbing routes arrive through the north balustrade
+      if (sz < 0 && (Math.abs(x + 4 + 68) < 1 || Math.abs(x + 4 - 36) < 1)) continue;
       // leave gaps in the balustrade — no straight lines anywhere
       const missing = R.aq.chance(0.1);
       const h = missing ? 0.28 : 1.1 + R.aq.range(-0.06, 0.06);
@@ -770,27 +773,48 @@ export async function build(ctx) {
    * A run of steps baked into ONE collidable mesh: real per-step collision,
    * a single draw call. dir: +1 climbs +X, -1 climbs -X.
    */
-  function flightX(x0, y0, z, dir, steps, width, rise, run, material) {
-    const g = new THREE.Group();
+  /**
+   * `fill` closes the void under the steps so a flight never floats:
+   *   { to: y }     solid masonry all the way down to y
+   *   { under: d }  a raking soffit slab d metres thick
+   */
+  function fillUnder(g, cx, cy, cz, w, d, y0, fill, material) {
+    if (!fill) return;
+    const base = fill.to !== undefined ? fill.to : cy - fill.under;
+    if (cy - base < 0.05) return;
+    const b = P.boxC(w, cy - base, d, material);
+    b.position.set(cx, (base + cy) / 2, cz);
+    g.add(b);
+  }
+
+  // Treads bake into ONE collidable mesh (real per-step collision, one draw
+  // call); the supporting mass bakes separately as pure decor so it never
+  // enters the collision octree.
+  function flightX(x0, y0, z, dir, steps, width, rise, run, material, fill) {
+    const g = new THREE.Group(), sup = new THREE.Group();
     for (let i = 0; i < steps; i++) {
+      const cx = x0 + dir * (run * (i + 0.5));
       const s = P.boxC(run * 1.02, rise, width, material);
-      s.position.set(x0 + dir * (run * (i + 0.5)), y0 + rise * (i + 0.5), z);
+      s.position.set(cx, y0 + rise * (i + 0.5), z);
       g.add(s);
+      fillUnder(sup, cx, y0 + rise * i, z, run * 1.02, width * 0.98, y0, fill, material);
     }
-    const f = bake(g, { collide: true });
-    ctx.add(f);
+    ctx.add(bake(g, { collide: true }));
+    if (sup.children.length) ctx.addDecor(bake(sup));
     return { endX: x0 + dir * run * steps, endY: y0 + rise * steps };
   }
 
-  function flightZ(x, y0, z0, dir, steps, width, rise, run, material) {
-    const g = new THREE.Group();
+  function flightZ(x, y0, z0, dir, steps, width, rise, run, material, fill) {
+    const g = new THREE.Group(), sup = new THREE.Group();
     for (let i = 0; i < steps; i++) {
+      const cz = z0 + dir * (run * (i + 0.5));
       const s = P.boxC(width, rise, run * 1.02, material);
-      s.position.set(x, y0 + rise * (i + 0.5), z0 + dir * (run * (i + 0.5)));
+      s.position.set(x, y0 + rise * (i + 0.5), cz);
       g.add(s);
+      fillUnder(sup, x, y0 + rise * i, cz, width * 0.98, run * 1.02, y0, fill, material);
     }
-    const f = bake(g, { collide: true });
-    ctx.add(f);
+    ctx.add(bake(g, { collide: true }));
+    if (sup.children.length) ctx.addDecor(bake(sup));
     return { endZ: z0 + dir * run * steps, endY: y0 + rise * steps };
   }
 
@@ -823,21 +847,34 @@ export async function build(ctx) {
   ctx.addDecor(bake(towerShell));
 
   let fl;
-  fl = flightX(-74.0, BY, -39.0, +1, 22, 5.0, 0.30, 0.50, mStone);   // -> y 6.2
+  const SOFFIT = { under: 0.9 };
+  fl = flightX(-74.0, BY, -39.0, +1, 22, 5.0, 0.30, 0.50, mStone, { to: BY });  // -> 6.2
   landing(-63.5, -41.6, -57.0, -30.0, fl.endY);
-  fl = flightX(-57.6, fl.endY, -32.0, -1, 22, 5.0, 0.30, 0.50, mStone);  // -> 12.8
+  fl = flightX(-57.6, fl.endY, -32.0, -1, 22, 5.0, 0.30, 0.50, mStone, SOFFIT); // -> 12.8
   landing(-74.2, -41.6, -68.0, -29.4, fl.endY);
-  fl = flightX(-74.0, fl.endY, -39.0, +1, 22, 5.0, 0.30, 0.50, mStone);  // -> 19.4
+  fl = flightX(-74.0, fl.endY, -39.0, +1, 22, 5.0, 0.30, 0.50, mStone, SOFFIT); // -> 19.4
   landing(-63.5, -41.6, -57.0, -30.0, fl.endY);
-  fl = flightX(-57.6, fl.endY, -32.0, -1, 22, 5.0, 0.30, 0.50, mStone);  // -> 26.0
-  // bridge from the top flight across to the channel deck
+  fl = flightX(-57.6, fl.endY, -32.0, -1, 22, 5.0, 0.30, 0.50, mStone, SOFFIT); // -> 26.0
+  // bridge from the top flight across to the channel deck (the parapet is
+  // notched at x = -68 in §3 so this actually lands on the walkway)
   landing(-70.6, -33.4, -65.4, -25.0, DECK_Y);
-  // notch the parapet so the bridge actually lands on the walkway
-  solidBox(5.2, 1.3, 1.0, -68.0, DECK_Y + 0.65, AQ_Z - 3.1);
 
   // --- 4b. THE RUINED GRAND STAIR (collapsed section, x 36..76) --------------
-  fl = flightX(76.0, BY, -29.6, -1, 88, 6.0, 0.30, 0.455, mStoneWet);   // -> 26.0
+  fl = flightX(76.0, BY, -29.6, -1, 88, 6.0, 0.30, 0.455, mStoneWet, { under: 2.8 });
   landing(32.6, -31.0, 39.0, -24.8, DECK_Y);
+  // squat piers holding the raking stair off the ground
+  const stairPiers = new THREE.Group();
+  for (let i = 1; i < 8; i++) {
+    const px = 76 - i * 5.0;
+    const top = BY + (76 - px) / 0.455 * 0.30 - 2.8;
+    if (top <= BY + 0.4) continue;
+    const b = P.boxC(2.6, top - BY, 5.2, mStoneWet);
+    b.position.set(px, (BY + top) / 2, -29.6);
+    b.rotation.y = R.aq.range(-0.02, 0.02);
+    stairPiers.add(b);
+    solidBox(2.7, top - BY, 5.3, px, (BY + top) / 2, -29.6);
+  }
+  ctx.addDecor(bake(stairPiers));
   // cheek walls, cracked and gap-toothed
   const cheeks = new THREE.Group();
   for (let i = 0; i < 40; i++) {
@@ -1016,8 +1053,8 @@ export async function build(ctx) {
       const h = (y1 - y0) / courses;
       const shrink = c * 0.09;
       const mm = (ti === 0 && c === 0) ? mStoneWet : (ti % 2 ? mTempleDk : mTemple);
-      if (ti === 0 && c === 0) {
-        // ground course of the south face is split around the doorway
+      if (ti === 0) {
+        // the whole ground tier is split around the entry passage
         const t = outer - inner;
         const nb = P.boxC(outer * 2, h * 1.01, t, mm);
         nb.position.set(TX, y0 + h / 2, TZ - (inner + t / 2)); tmp.add(nb);
@@ -1036,10 +1073,8 @@ export async function build(ctx) {
         ringCourse(tmp, y0, h, outer - shrink, inner, mm);
       }
     }
-    // cornice lip between tiers
-    const lip = P.boxC((outer + 0.5) * 2, 0.28, (outer + 0.5) * 2, mTempleDk);
-    lip.position.set(TX, y1 - 0.14, TZ);
-    tmp.add(lip);
+    // cornice lip between tiers — a RING, never a slab: the core stays hollow
+    ringCourse(tmp, y1 - 0.28, 0.28, outer + 0.5, inner, mTempleDk, 0);
     // glyph band around every second tier
     if (ti % 2 === 0) {
       for (const [w, d, ox, oz] of [
@@ -1061,15 +1096,22 @@ export async function build(ctx) {
         const w = outer - 1.7;
         solidBox(w, y1 - y0, t, TX + sx * (1.7 + w / 2), (y0 + y1) / 2, TZ + inner + t / 2);
       }
-      solidBox(3.4, 0.4, t, TX, 2.3, TZ + inner + t / 2);        // lintel over the door
     } else {
       solidBox(outer * 2, y1 - y0, t, TX, (y0 + y1) / 2, TZ - (inner + t / 2));
       solidBox(outer * 2, y1 - y0, t, TX, (y0 + y1) / 2, TZ + inner + t / 2);
     }
     solidBox(t, y1 - y0, inner * 2, TX - (inner + t / 2), (y0 + y1) / 2, TZ);
     solidBox(t, y1 - y0, inner * 2, TX + (inner + t / 2), (y0 + y1) / 2, TZ);
-    // stepped terrace floor of each tier (walkable if you scramble the stairs)
-    solidFloor(TX - outer, TZ - outer, TX + outer, TZ + outer, y1);
+    // stepped terrace floor of each tier. Tiers 0–1 are ring-only so the
+    // chamber void underneath stays genuinely open.
+    if (ti < 2) {
+      solidFloor(TX - outer, TZ - outer, TX + outer, TZ - inner, y1);
+      solidFloor(TX - outer, TZ + inner, TX + outer, TZ + outer, y1);
+      solidFloor(TX - outer, TZ - inner, TX - inner, TZ + inner, y1);
+      solidFloor(TX + inner, TZ - inner, TX + outer, TZ + inner, y1);
+    } else {
+      solidFloor(TX - outer, TZ - outer, TX + outer, TZ + outer, y1);
+    }
   }
 
   // --- chamber ceiling with the oculus ---------------------------------------
@@ -1169,8 +1211,8 @@ export async function build(ctx) {
 
   ctx.addDecor(bake(tmp));
 
-  // monumental north stair, ground → summit
-  flightZ(TX, GY, TZ - TIER_R[0] - 16.8, +1, 40, 9.0, 0.30, 0.78, mTemple);
+  // monumental north stair, ground → summit (solid masonry beneath)
+  flightZ(TX, GY, TZ - TIER_R[0] - 16.8, +1, 40, 9.0, 0.30, 0.78, mTemple, { to: GY });
   // ruined balustrades flanking it
   const balus = new THREE.Group();
   for (let i = 0; i < 26; i++) {
@@ -1261,7 +1303,7 @@ export async function build(ctx) {
     p.rotation.y = R.cis.range(-0.03, 0.03);
     cis.add(p);
     solidBox(1.5, PIER_TOP - CY + 0.2, 1.5, cx, (CY + PIER_TOP) / 2, cz);
-    const cap = P.boxC(1.9, 0.3, 1.9, mSlime);
+    const cap = P.boxC(1.9, 0.3, 1.9, mStoneWet);
     cap.position.set(cx, PIER_TOP - 0.15, cz);
     cis.add(cap);
   }
@@ -1270,7 +1312,7 @@ export async function build(ctx) {
       const a = archRing(ARCH_R, 0.5, 1.5, mDark, 7);
       a.position.set((cisXs[i] + cisXs[i + 1]) / 2, PIER_TOP, cisZs[j]);
       cis.add(a);
-      const s = spandrel(6, ARCH_R, PIER_TOP, CCEIL, 1.5, mDark, 5);
+      const s = spandrel(6, ARCH_R, PIER_TOP, CCEIL, 1.5, mDark, 5, 0.5);
       s.position.set((cisXs[i] + cisXs[i + 1]) / 2, 0, cisZs[j]);
       cis.add(s);
     }
@@ -1279,7 +1321,7 @@ export async function build(ctx) {
       a.position.set(cisXs[i], PIER_TOP, (cisZs[j] + cisZs[j + 1]) / 2);
       a.rotation.y = Math.PI / 2;
       cis.add(a);
-      const s = spandrel(4, ARCH_R, PIER_TOP, CCEIL, 1.5, mDark, 5);
+      const s = spandrel(4, ARCH_R, PIER_TOP, CCEIL, 1.5, mDark, 5, 0.5);
       s.position.set(cisXs[i], 0, (cisZs[j] + cisZs[j + 1]) / 2);
       s.rotation.y = Math.PI / 2;
       cis.add(s);
@@ -1333,7 +1375,7 @@ export async function build(ctx) {
     solidBox(w, 7.2, d, 19 + ox, -2.9, -60 + oz);
   }
   ctx.addDecor(bake(swShell));
-  flightX(20.0, CY, -60.0, +1, 20, 4.0, 0.30, 0.45, mDark);
+  flightX(20.0, CY, -60.0, +1, 20, 4.0, 0.30, 0.45, mDark, { to: CY - 0.6 });
 
   // dressing: silt heaps, a broken arch, dripping columns of water
   const cisDress = new THREE.Group();
@@ -1401,7 +1443,8 @@ export async function build(ctx) {
   };
 
   // --- instanced trees: three baked variants, two draw calls each ------------
-  let treeCount = 0;
+  // Both parts of a variant use the same scatter seed and the same accept test,
+  // so bark and canopy land on identical transforms.
   for (let v = 0; v < 3; v++) {
     const proto = P.tree(R.jun.range(13, 19), 'broad', 4000 + v * 77);
     const baked = P.freeze(proto);
@@ -1419,7 +1462,6 @@ export async function build(ctx) {
         d.rotation.y = rr() * TAU;
         d.rotation.z = rr.gauss(0, 0.035);
         d.scale.setScalar(rr.range(0.72, 1.5));
-        if (part === parts[0]) treeCount++;
         return true;
       }, 900 + v * 13);
       inst.castShadow = true;
@@ -1491,7 +1533,8 @@ export async function build(ctx) {
 
   // --- vines: hanging planes with a painted alpha, swaying in the shader -----
   const uTime = { value: 0 };
-  function addSway(material, amp) {
+  /** sign = -1 for things that hang down, +1 for things that stand up. */
+  function addSway(material, amp, sign) {
     material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = uTime;
       shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader;
@@ -1502,16 +1545,16 @@ export async function build(ctx) {
          #ifdef USE_INSTANCING
            swayPhase = instanceMatrix[3].x * 0.41 + instanceMatrix[3].z * 0.27;
          #endif
-         float swayAmt = ${amp.toFixed(3)} * max(0.0, -transformed.y);
+         float swayAmt = ${amp.toFixed(4)} * max(0.0, ${sign.toFixed(1)} * transformed.y);
          transformed.x += sin(uTime * 0.9 + swayPhase) * swayAmt;
          transformed.z += cos(uTime * 0.71 + swayPhase * 1.3) * swayAmt * 0.7;`
       );
     };
-    material.customProgramCacheKey = () => 'sway' + amp;
+    material.customProgramCacheKey = () => 'sway' + amp + '_' + sign;
     return material;
   }
-  addSway(mVine, 0.055);
-  addSway(mFern, 0.02);
+  addSway(mVine, 0.055, -1);    // vine planes hang below their origin
+  addSway(mFern, 0.030, +1);    // fronds rise above theirs
 
   // vine geometry hangs DOWN from its origin so the sway ramps toward the tip
   const vineGeo = (() => {
@@ -1627,7 +1670,7 @@ export async function build(ctx) {
     g.computeVertexNormals();
     return g;
   })();
-  ctx.addDecor(P.scatter(boulderGeo, mBoulder, 260, (i, d, rr) => {
+  ctx.addDecor(P.scatter(boulderGeo, mCliff, 260, (i, d, rr) => {
     const inCanal = rr.chance(0.3);
     const x = inCanal ? rr.range(-HX + 3, HX - 3) : rr.range(-HX + 3, HX - 3);
     const z = inCanal ? rr.range(-29, -17) : rr.range(-HZ + 3, HZ - 3);
@@ -1687,3 +1730,370 @@ export async function build(ctx) {
   }, 4747);
   mossShells.castShadow = false;
   ctx.addDecor(mossShells);
+
+  // ---------------------------------------------------------------------------
+  // §9  WATER, CAUSTICS, MIST, GOD RAYS, DEBRIS, BIRDS
+  // ---------------------------------------------------------------------------
+
+  // --- water surfaces --------------------------------------------------------
+  const canalWater = P.ground(HX * 2, 14, wOpen, { collide: false });
+  canalWater.position.set(0, WY, AQ_Z);
+  ctx.addDecor(canalWater);
+
+  const galWater = P.ground(GAL.x1 - GAL.x0, GAL.z1 - GAL.z0, wOpen, { collide: false });
+  galWater.position.set((GAL.x0 + GAL.x1) / 2, WY, (GAL.z0 + GAL.z1) / 2);
+  ctx.addDecor(galWater);
+
+  for (const [cx, w] of [[(-HX + GAP_X0) / 2, GAP_X0 + HX], [(GAP_X1 + HX) / 2, HX - GAP_X1]]) {
+    const chan = P.ground(w, 4.4, wChannel, { collide: false });
+    chan.position.set(cx, DECK_WATER, AQ_Z);
+    ctx.addDecor(chan);
+  }
+
+  const cisWater = P.ground(IX1 - IX0, IZ1 - IZ0, wBlack, { collide: false });
+  cisWater.position.set((IX0 + IX1) / 2, CWY, (IZ0 + IZ1) / 2);
+  ctx.addDecor(cisWater);
+
+  // --- caustics: additive painted networks scrolling under the surface -------
+  const causticMaps = [];
+  function causticSheet(cx, cz, w, d, y, repX, repZ, opacity) {
+    const m = mCaustic();
+    m.opacity = opacity;
+    m.map.repeat.set(repX, repZ);
+    const p = P.ground(w, d, m, { collide: false });
+    p.position.set(cx, y, cz);
+    p.renderOrder = 2;
+    ctx.addDecor(p);
+    causticMaps.push(m.map);
+    return m.map;
+  }
+  // NOTE: these sit just ABOVE the surface. The water material depth-writes, so
+  // anything placed under it would be depth-rejected and never seen.
+  causticSheet((GAL.x0 + GAL.x1) / 2, (GAL.z0 + GAL.z1) / 2,
+    GAL.x1 - GAL.x0, GAL.z1 - GAL.z0, WY + 0.04, 7, 8, 0.62);
+  causticSheet((GAL.x0 + GAL.x1) / 2, (GAL.z0 + GAL.z1) / 2,
+    GAL.x1 - GAL.x0, GAL.z1 - GAL.z0, WY + 0.07, 4.5, 5, 0.34);
+  causticSheet(0, AQ_Z, HX * 2, 14, WY + 0.04, 21, 1.5, 0.5);
+  causticSheet((IX0 + IX1) / 2, (IZ0 + IZ1) / 2, IX1 - IX0, IZ1 - IZ0, CWY + 0.04, 5, 3.5, 0.22);
+
+  // --- god rays + the pools of light they land in ----------------------------
+  const RAY_EULER = new THREE.Euler(-0.27, 0, -0.49);
+  const shafts = new THREE.Group();
+  function shaft(x, yTop, z, h, rTop, rBot, floorY) {
+    const g = new THREE.Group();
+    g.position.set(x, yTop, z);
+    g.rotation.copy(RAY_EULER);
+    const cone = new THREE.Mesh(
+      new THREE.CylinderGeometry(rTop, rBot, h, 14, 1, true), mRay);
+    cone.position.y = -h / 2;
+    g.add(cone);
+    shafts.add(g);
+    if (floorY !== undefined) {
+      const drop = new THREE.Vector3(0, -(yTop - floorY), 0).applyEuler(RAY_EULER);
+      const pool = P.ground(rBot * 3.4, rBot * 3.4, mPool, { collide: false });
+      pool.position.set(x + drop.x, floorY + 0.05, z + drop.z);
+      shafts.add(pool);
+    }
+  }
+  // Cones stop at the water line for the same depth-sort reason as the caustics.
+  // gallery roof holes
+  for (const [ox, oz, orad] of openings) {
+    shaft(ox, BY + GAL_ROOF + 0.4, oz, GAL_ROOF, orad * 0.55, orad * 1.25, WY);
+  }
+  // canopy gaps over the canal and the plaza
+  for (let i = 0; i < 7; i++) {
+    const x = R.dress.range(-96, 96);
+    if (x > GAP_X0 - 6 && x < GAP_X1 + 6) continue;
+    shaft(x, 30, AQ_Z + R.dress.range(-9, 9), 29.8, 1.6, 4.6, WY);
+  }
+  for (let i = 0; i < 6; i++) {
+    const x = R.dress.range(-HX + 12, HX - 12), z = R.dress.range(-HZ + 12, HZ - 12);
+    if (inWater(x, z)) continue;
+    shaft(x, 30, z, 30, 1.4, 4.0, GY);
+  }
+  // the temple chimney: a hard barred beam onto the altar
+  shaft(TX, TIER_H[5] - 0.4, TZ, 11.2, 1.4, 2.1, 1.75);
+  // the cistern grate
+  shaft(GRATE.x, -0.9, GRATE.z, 4.7, GRATE.r * 0.85, GRATE.r * 1.15, CWY);
+  const shaftsBaked = bake(shafts, { cast: false, receive: false });
+  shaftsBaked.traverse(o => { if (o.isMesh) o.renderOrder = 1; });
+  ctx.addDecor(shaftsBaked);
+
+  // --- low mist layers over the water ----------------------------------------
+  const mistPlanes = [];
+  for (let i = 0; i < 4; i++) {
+    const g = new THREE.PlaneGeometry(130, 130);
+    g.rotateX(-Math.PI / 2);
+    const mm = mMist.clone();
+    mm.opacity = 0.10 + i * 0.045;
+    const p = new THREE.Mesh(g, mm);
+    p.position.set(R.dress.range(-40, 40), 0.55 + i * 0.55, R.dress.range(-30, 30));
+    p.renderOrder = 3;
+    p.userData.collide = false;
+    p.castShadow = false; p.receiveShadow = false;
+    ctx.addDecor(p);
+    mistPlanes.push({
+      mesh: p,
+      vx: R.dress.range(0.16, 0.42) * R.dress.sign(),
+      vz: R.dress.range(0.10, 0.30) * R.dress.sign(),
+      y: p.position.y,
+    });
+  }
+
+  // --- floating debris drifting on the open water ----------------------------
+  const debrisGeo = new THREE.PlaneGeometry(1.0, 0.7);
+  debrisGeo.rotateX(-Math.PI / 2);
+  const DEBRIS_N = 96;
+  const debrisData = [];
+  const debris = P.scatter(debrisGeo, mDebris, DEBRIS_N, (i, d, rr) => {
+    const inGal = rr.chance(0.45);
+    const x = inGal ? rr.range(GAL.x0 + 2, GAL.x1 - 2) : rr.range(-HX + 4, HX - 4);
+    const z = inGal ? rr.range(GAL.z0 + 2, GAL.z1 - 2) : rr.range(-28.5, -17.5);
+    const s = rr.range(0.5, 2.1);
+    debrisData.push({
+      x, z, s, rot: rr() * TAU,
+      vx: rr.range(-0.16, 0.16), vz: rr.range(-0.1, 0.1),
+      spin: rr.range(-0.12, 0.12), bob: rr() * TAU,
+    });
+    d.position.set(x, WY + 0.05, z);
+    d.rotation.y = debrisData[debrisData.length - 1].rot;
+    d.scale.setScalar(s);
+    return true;
+  }, 2626);
+  debris.castShadow = false;
+  debris.receiveShadow = false;
+  ctx.addDecor(debris);
+  const debrisDummy = new THREE.Object3D();
+
+  // --- ripple rings where drips land -----------------------------------------
+  const ringGeo = new THREE.PlaneGeometry(1, 1);
+  ringGeo.rotateX(-Math.PI / 2);
+  const rings = [];
+  const ringSites = [
+    ...drips.map(d => [d[0], d[2] + 0.02, d[1]]),
+    [-52, WY + 0.03, 18], [-66, WY + 0.03, 36], [-38, WY + 0.03, -22],
+    [12, WY + 0.03, -24], [72, 0.66, 34],
+  ];
+  ringSites.forEach((s, i) => {
+    const m = new THREE.MeshBasicMaterial({
+      map: ringTex, color: 0x9fe8d2, blending: THREE.AdditiveBlending,
+      transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide, fog: false,
+    });
+    const mesh = new THREE.Mesh(ringGeo, m);
+    mesh.position.set(s[0], s[1], s[2]);
+    mesh.userData.collide = false;
+    mesh.castShadow = false; mesh.receiveShadow = false;
+    mesh.renderOrder = 4;
+    ctx.addDecor(mesh);
+    rings.push({ mesh, m, phase: (i / ringSites.length) * 2.6, period: 2.2 + (i % 3) * 0.6 });
+  });
+
+  // --- a flock that startles off the parapet ---------------------------------
+  const birdGeo = (() => {
+    const a = new THREE.PlaneGeometry(0.55, 0.22);
+    a.translate(0.28, 0, 0); a.rotateZ(0.35);
+    const b = new THREE.PlaneGeometry(0.55, 0.22);
+    b.translate(-0.28, 0, 0); b.rotateZ(-0.35);
+    return P.mergeGeometries([a, b]);
+  })();
+  const mBird = M.solid({ color: 0x14191a, roughness: 0.9, flat: true, side: THREE.DoubleSide });
+  const BIRDS = 18;
+  const birdData = [];
+  for (let i = 0; i < BIRDS; i++) {
+    birdData.push({
+      px: R.dress.range(-90, -40), py: DECK_Y + 1.3, pz: AQ_Z + (R.dress.chance(0.5) ? -2.6 : 2.6),
+      a0: R.dress() * TAU, rad: R.dress.range(16, 34), h: R.dress.range(30, 42),
+      spd: R.dress.range(0.35, 0.6), flap: R.dress() * TAU,
+    });
+  }
+  const birds = P.scatter(birdGeo, mBird, BIRDS, (i, d) => {
+    d.position.set(birdData[i].px, birdData[i].py, birdData[i].pz);
+    return true;
+  }, 31);
+  birds.castShadow = false;
+  ctx.addDecor(birds);
+  const birdDummy = new THREE.Object3D();
+
+  ctx.add(proxies);
+
+  // ---------------------------------------------------------------------------
+  // §10  MOTION — everything above breathes
+  // ---------------------------------------------------------------------------
+
+  const flames = torches.map((t, i) => ({
+    obj: t.userData.flame,
+    base: t.userData.flame ? t.userData.flame.scale.clone() : null,
+    ph: i * 1.7,
+  })).filter(f => f.obj);
+  const torchLights = [chamberLight, doorLight, cisTorchLight];
+
+  ctx.onUpdate((dt, elapsed) => {
+    uTime.value = elapsed;
+
+    // water normal drift
+    wOpen.userData.tick(dt);
+    wChannel.userData.tick(dt * 1.6);
+    wBlack.userData.tick(dt * 0.35);
+
+    // caustics scroll — two layers crossing gives the interference shimmer
+    for (let i = 0; i < causticMaps.length; i++) {
+      const s = i === 1 ? -1 : 1;
+      causticMaps[i].offset.set(
+        elapsed * 0.017 * s + Math.sin(elapsed * 0.21 + i) * 0.014,
+        elapsed * 0.011 * s + Math.cos(elapsed * 0.17 + i) * 0.014);
+    }
+
+    // mist drift, wrapping softly around the valley
+    for (const mp of mistPlanes) {
+      mp.mesh.position.x += mp.vx * dt;
+      mp.mesh.position.z += mp.vz * dt;
+      if (mp.mesh.position.x > 70) mp.mesh.position.x = -70;
+      if (mp.mesh.position.x < -70) mp.mesh.position.x = 70;
+      if (mp.mesh.position.z > 60) mp.mesh.position.z = -60;
+      if (mp.mesh.position.z < -60) mp.mesh.position.z = 60;
+      mp.mesh.position.y = mp.y + Math.sin(elapsed * 0.12 + mp.vx * 10) * 0.22;
+    }
+
+    // shafts of light breathe as the canopy stirs
+    mRay.opacity = 0.13 + Math.sin(elapsed * 0.33) * 0.03 + Math.sin(elapsed * 0.13) * 0.02;
+    mPool.opacity = 0.44 + Math.sin(elapsed * 0.33 + 1) * 0.07;
+
+    // torch flicker
+    for (const f of flames) {
+      const n = Math.sin(elapsed * 11 + f.ph) * 0.5 + Math.sin(elapsed * 23.3 + f.ph * 2) * 0.5;
+      f.obj.scale.set(f.base.x * (1 + n * 0.16), f.base.y * (1 + n * 0.3), f.base.z * (1 + n * 0.16));
+      f.obj.position.x = Math.sin(elapsed * 7.7 + f.ph) * 0.012;
+    }
+    for (let i = 0; i < torchLights.length; i++) {
+      const base = [6.5, 4.5, 6][i];
+      torchLights[i].intensity = base * (0.82 + Math.sin(elapsed * 9 + i * 2.1) * 0.1
+        + Math.sin(elapsed * 19.7 + i) * 0.08);
+    }
+
+    // ripple rings expanding and fading where the drips land
+    for (const r of rings) {
+      const t = ((elapsed + r.phase) % r.period) / r.period;
+      const s = 0.4 + t * 3.4;
+      r.mesh.scale.set(s, 1, s);
+      r.m.opacity = 0.55 * (1 - t) * (1 - t);
+    }
+
+    // floating debris
+    for (let i = 0; i < debrisData.length; i++) {
+      const d = debrisData[i];
+      d.x += d.vx * dt; d.z += d.vz * dt;
+      d.rot += d.spin * dt;
+      if (d.x > HX - 3) d.x = -HX + 3;
+      if (d.x < -HX + 3) d.x = HX - 3;
+      const inGal = inRect(d.x, d.z, GAL);
+      if (!inGal && (d.z < -29 || d.z > -17)) d.vz = -d.vz;
+      debrisDummy.position.set(d.x, WY + 0.05 + Math.sin(elapsed * 1.3 + d.bob) * 0.02, d.z);
+      debrisDummy.rotation.set(0, d.rot, 0);
+      debrisDummy.scale.setScalar(d.s);
+      debrisDummy.updateMatrix();
+      debris.setMatrixAt(i, debrisDummy.matrix);
+    }
+    debris.instanceMatrix.needsUpdate = true;
+
+    // the flock: perched most of the time, then startles and circles
+    const CYCLE = 34;
+    const t = elapsed % CYCLE;
+    const fly = t > 8 && t < 26 ? Math.min(1, Math.min(t - 8, 26 - t) / 2.5) : 0;
+    for (let i = 0; i < BIRDS; i++) {
+      const b = birdData[i];
+      const ang = b.a0 + elapsed * b.spd;
+      const fx = Math.cos(ang) * b.rad - 30;
+      const fz = Math.sin(ang) * b.rad + AQ_Z;
+      const fyy = b.h + Math.sin(elapsed * 0.8 + b.a0) * 2.2;
+      const k = fly * fly * (3 - 2 * fly);
+      birdDummy.position.set(
+        b.px + (fx - b.px) * k,
+        b.py + (fyy - b.py) * k,
+        b.pz + (fz - b.pz) * k);
+      birdDummy.rotation.set(
+        Math.sin(elapsed * 9 + b.flap) * 0.5 * k,
+        -ang + Math.PI / 2,
+        Math.sin(elapsed * 11 + b.flap) * 0.6 * k);
+      birdDummy.scale.setScalar(1 + Math.sin(elapsed * 13 + b.flap) * 0.12 * k);
+      birdDummy.updateMatrix();
+      birds.setMatrixAt(i, birdDummy.matrix);
+    }
+    birds.instanceMatrix.needsUpdate = true;
+
+    // the gallery bounce pulses with the caustics
+    gl1.intensity = 9 + Math.sin(elapsed * 0.9) * 1.8;
+    gl2.intensity = 8 + Math.sin(elapsed * 0.7 + 2) * 1.6;
+    cl1.intensity = 7 + Math.sin(elapsed * 1.1 + 1) * 1.4;
+  });
+
+  // ---------------------------------------------------------------------------
+  // §11  GAMEPLAY PLACEMENT — 42 coins, 5 batteries, 4 powerups, 1 pup, 22 spots
+  // ---------------------------------------------------------------------------
+
+  const coin = (x, y, z) => ctx.pickup(x, y + 1.0, z, 'coin');
+
+  // -- ground level: plaza, canal, arcade (12) --------------------------------
+  coin(-30, GY, -38); coin(-46, GY, -36); coin(-72, GY, -34);
+  coin(6, BY, -23); coin(-22, BY, -26); coin(44, BY, -20);
+  coin(88, GY, -40); coin(64, GY, -8); coin(24, GY, 4);
+  coin(-96, GY, 12); coin(-14, GY, 46); coin(52, GY, 78);
+
+  // -- the aqueduct top (8) ---------------------------------------------------
+  coin(-88, DECK_Y, AQ_Z); coin(-60, DECK_Y, AQ_Z); coin(-34, DECK_Y, AQ_Z);
+  coin(-8, DECK_Y, AQ_Z); coin(10, DECK_Y, AQ_Z); coin(38, DECK_Y, AQ_Z);
+  coin(62, DECK_Y, AQ_Z); coin(90, DECK_Y, AQ_Z);
+  // -- and the stair routes (3) -----------------------------------------------
+  coin(-66, 4.4, -39); coin(-62, 19.4, -35); coin(58, 11.5, -29.6);
+
+  // -- the flooded gallery (9) ------------------------------------------------
+  coin(-84, BY, -6); coin(-70, BY, 15); coin(-59, BY, 4);
+  coin(-51, BY, 23); coin(-37, BY, 30); coin(-32, BY, 41);
+  coin(-57, BY + 1.35, 48); coin(-81, BY, 41); coin(-35, BY, -12);
+
+  // -- the temple (7) ---------------------------------------------------------
+  coin(TX, 3.0, TZ - 32); coin(TX - 7.5, GY, TZ - 26); coin(TX + 6.2, 7.6, TZ - 14);
+  coin(TX, TIER_H[5], TZ - 6.4); coin(TX + 4.5, TIER_H[5], TZ + 4.5);
+  coin(TX - 4.8, GY, TZ + 4.6); coin(TX, GY, TZ + 16);
+
+  // -- the cistern (3) --------------------------------------------------------
+  coin(10, CY, -58); coin(-4, CY, -66); coin(-16, CY, -76);
+
+  // batteries — weighted to the dark
+  ctx.pickup(6, CY + 1.0, -74, 'battery');
+  ctx.pickup(-20, CY + 1.0, -60, 'battery');
+  ctx.pickup(14, CY + 1.0, -82, 'battery');
+  ctx.pickup(-66, BY + 1.0, 28, 'battery');
+  ctx.pickup(TX + 4.4, GY + 1.0, TZ - 4.2, 'battery');
+
+  // powerups
+  ctx.pickup(-2, CY + 1.0, -80, 'powerup:ghost');
+  ctx.pickup(-45, BY + 1.0, 8, 'powerup:nightvision');
+  ctx.pickup(-20, DECK_Y + 1.0, AQ_Z, 'powerup:dash');
+  ctx.pickup(TX - 6.0, GY + 1.0, TZ + 5.4, 'powerup:silence');
+
+  // the dog — behind the fallen arch in the blackest corner of the cistern
+  ctx.pickup(-27.2, CY + 1.0, -85.2, 'pup');
+
+  // -- hiding spots -----------------------------------------------------------
+  const spots = [
+    // gallery: behind columns and under the fallen roof
+    [-81.6, BY, 2.4, 1.6, 1.0], [-70.6, BY, 24.4, 1.6, 1.0], [-59.6, BY, 35.4, 1.6, 0.95],
+    [-48.6, BY, 13.4, 1.6, 0.95], [-37.6, BY, 46.4, 1.6, 0.9], [-26.6, BY, 2.4, 1.6, 0.9],
+    [-57, BY, 47, 2.0, 1.0],
+    // cistern: the whole room is concealment
+    [-27.0, CY, -85.4, 3.0, 1.0], [-10, CY, -78, 2.6, 1.0], [8, CY, -70, 2.6, 1.0],
+    [-20, CY, -58, 2.4, 0.95], [12, CY, -84, 2.4, 0.95],
+    // the temple chamber and its passage
+    [TX - 5.2, GY, TZ + 4.6, 2.0, 1.0], [TX + 5.2, GY, TZ - 4.6, 2.0, 1.0],
+    [TX, GY, TZ + 16, 1.4, 0.9],
+    // under the collapsed span, in the rubble
+    [24, BY, AQ_Z - 4.5, 2.2, 0.9], [18, BY, AQ_Z + 4.0, 2.0, 0.85],
+    // behind aqueduct piers, at ground level
+    [-96, BY, AQ_Z + 3.6, 1.6, 0.8], [-48, BY, AQ_Z - 3.6, 1.6, 0.8],
+    [48, BY, AQ_Z + 3.6, 1.6, 0.8],
+    // stair tower and undergrowth
+    [-71, GY, -31, 2.0, 0.9], [-88, GY, 74, 2.6, 0.85], [86, GY, 66, 2.6, 0.85],
+    [90, GY, -76, 2.6, 0.85], [79, GY, 46, 2.2, 0.75],
+  ];
+  for (const [x, y, z, r, q] of spots) ctx.hidingSpot(x, y, z, r, q);
+}

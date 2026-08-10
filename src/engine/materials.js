@@ -169,18 +169,23 @@ export function painted(width, height, draw, o = {}) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
-  return new THREE.MeshStandardMaterial({
+  // Note: three warns on any explicitly-undefined constructor parameter, so the
+  // emissive pair is attached after construction rather than passed as undefined.
+  const m = new THREE.MeshStandardMaterial({
     map: t,
     transparent: o.transparent ?? true,
     roughness: o.roughness ?? 0.8,
     metalness: 0,
     side: o.side ?? THREE.DoubleSide,
-    emissive: o.emissive !== undefined ? new THREE.Color(o.emissive) : undefined,
-    emissiveIntensity: o.emissiveIntensity ?? 0,
-    emissiveMap: o.emissive !== undefined ? t : undefined,
     alphaTest: o.alphaTest ?? 0.02,
     depthWrite: o.depthWrite ?? true,
   });
+  if (o.emissive !== undefined) {
+    m.emissive = new THREE.Color(o.emissive);
+    m.emissiveIntensity = o.emissiveIntensity ?? 1;
+    m.emissiveMap = t;
+  }
+  return m;
 }
 
 /**
