@@ -19,14 +19,14 @@ import * as THREE from 'three';
 export const meta = {
   id: 'aqueducts',
   name: 'THE AQUEDUCTS',
-  tagline: 'The jungle drank the temple, and the water never left.',
+  tagline: 'The jungle took the waterworks back. Something still keeps the channels clear.',
   order: 5,
   difficulty: 3,
   biome: 'outdoor',
   seed: 50505,
   spawn: [-8, 0.0, -36],
   bounds: 104,
-  colors: ['#2f7d72', '#141f1c'],
+  colors: ['#3fbfa0', '#22301c'],
   music: 'calm',
 };
 

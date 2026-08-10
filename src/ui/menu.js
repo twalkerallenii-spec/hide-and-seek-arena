@@ -332,7 +332,7 @@ export class Menu {
       upd();
     };
 
-    bind('setQuality', 'quality', v => v, null, () => { });
+    // Quality is a <select>: bind() coerces with Number(), which would store NaN.
     $('setQuality').value = s.quality;
     $('setQuality').addEventListener('change', (e) => {
       save.set('quality', e.target.value);

@@ -424,7 +424,7 @@ export async function build(ctx) {
     }));
     planet.castShadow = false; planet.userData.collide = false;
     planetGrp.add(planet);
-    for (const [rad, colr, op, ro] of [[257, 0x8fe0ff, 0.24, -8], [274, 0x5fc4f0, 0.11, -9]]) {
+    for (const [rad, colr, op, ro] of [[267, 0x8fe0ff, 0.24, -8], [285, 0x5fc4f0, 0.11, -9]]) {
       const sh = new THREE.Mesh(new THREE.SphereGeometry(rad, 36, 22), new THREE.MeshBasicMaterial({
         color: colr, transparent: true, opacity: op, side: THREE.BackSide,
         blending: THREE.AdditiveBlending, depthWrite: false, fog: false,

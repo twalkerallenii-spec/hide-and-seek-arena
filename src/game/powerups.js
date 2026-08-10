@@ -105,10 +105,14 @@ export class PowerupSystem {
         this._nvLight = new THREE.HemisphereLight(0x9effc0, 0x224030, 1.5);
         scene.add(this._nvLight);
       }
+      // Snapshot whatever grade the arena chose so we can put it back exactly,
+      // rather than resetting to a generic default and flattening the look.
+      this._gradeBefore = renderer.getGrade();
       renderer.setGrade({ exposure: 1.6, saturation: 0.35, gain: [0.55, 1.25, 0.7], lift: [0.02, 0.06, 0.02] });
     } else {
       if (this._nvLight) { scene.remove(this._nvLight); this._nvLight = null; }
-      renderer.setGrade(this.refs.baseGrade || { exposure: 1, saturation: 1.06, gain: [1, 1, 1], lift: [0, 0, 0] });
+      if (this._gradeBefore) renderer.setGrade(this._gradeBefore);
+      this._gradeBefore = null;
     }
   }
 

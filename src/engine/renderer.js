@@ -174,6 +174,20 @@ export class Renderer {
     }
   }
 
+  /** Snapshot of the grade currently applied — see setGrade. */
+  getGrade() {
+    const u = this.grade?.uniforms;
+    if (!u) return {};
+    return {
+      vignette: u.uVignette.value, grain: u.uGrain.value, aberration: u.uAberration.value,
+      saturation: u.uSaturation.value, contrast: u.uContrast.value, scanline: u.uScanline.value,
+      lift: u.uLift.value.toArray(), gain: u.uGain.value.toArray(),
+      exposure: this.gl.toneMappingExposure,
+      bloom: this.bloom?.strength, bloomRadius: this.bloom?.radius,
+      bloomThreshold: this.bloom?.threshold,
+    };
+  }
+
   /** Apply an arena's colour-grade preset. */
   setGrade(o = {}) {
     if (!this.grade) return;

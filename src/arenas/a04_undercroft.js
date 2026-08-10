@@ -306,8 +306,9 @@ export async function build(ctx) {
   const WIN = (from, to, y) => ({ from, to, y0: y + 1.1, y1: y + 2.7 });
 
   /**
-   * Industrial stair flight from (x0,z0,y0) to (x1,z1,y1).
-   * Steps are frozen decor; collision is a single invisible ramp box.
+   * Industrial stair flight from (x0,z0,y0) to (x1,z1,y1). Treads, risers and
+   * stringers go into the instanced-box bucket; collision is one invisible
+   * ramp box, so a whole switchback costs nothing to draw and 12 tris to walk.
    */
   function stairFlight(x0, z0, y0, x1, z1, y1, width, dec, material) {
     const dx = x1 - x0, dz = z1 - z0;
