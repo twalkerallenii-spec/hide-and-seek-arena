@@ -31,7 +31,9 @@ export class HUD {
       fearVig: $('fearVignette'),
       crosshair: $('crosshair'),
       minimap: $('minimap'),
+      conceal: $('concealBadge'),
     };
+    this._concealed = false;
     this._hintTimer = 0;
     this.mapCtx = this.el.minimap.getContext('2d');
     this.mapEnabled = true;
@@ -108,6 +110,13 @@ export class HUD {
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 320); }, 2200);
     // never let toasts stack off-screen
     while (this.el.toasts.children.length > 5) this.el.toasts.firstChild.remove();
+  }
+
+  /** Tell the player, unambiguously, whether the sweep can currently see them. */
+  concealed(on) {
+    if (on === this._concealed) return;
+    this._concealed = on;
+    this.el.conceal.classList.toggle('show', on);
   }
 
   scanPulse() {

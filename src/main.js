@@ -380,6 +380,12 @@ class Game {
     this.controller.enabled = true;
     this.controller.lock();
     this.hud.hint('CLICK TO LOOK · WASD TO MOVE · F FOR LIGHT', 4);
+    // State the objective once the control hint has cleared.
+    setTimeout(() => {
+      if (this.state === STATE.PLAY) {
+        this.hud.hint(`FIND ALL ${this.pickups.totalCoins} COINS — OR THE PUP AND MOST OF THEM`, 5);
+      }
+    }, 4600);
     this._loading = false;
   }
 
@@ -527,7 +533,9 @@ class Game {
 
     if (playing) {
       const hSpeed = Math.hypot(c.velocity.x, c.velocity.z);
-      this.seeker.update(dt, new THREE.Vector3(p.x, p.y, p.z), {
+      const here = new THREE.Vector3(p.x, p.y, p.z);
+      this.hud.concealed(this.seeker.ghosted || this.seeker.concealed(here, c.crouching));
+      this.seeker.update(dt, here, {
         crouching: c.crouching,
         sprinting: c.sprinting,
         moving: hSpeed > 0.6,
