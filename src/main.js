@@ -529,11 +529,17 @@ class Game {
         this.net.connect(url, { name: save.data.name || 'PLAYER', room: id });
       }
       if (!this.monster.loaded) await this.monster.load();
+      // An arena can declare its tightest ceiling; otherwise infer from biome.
+      // The monster scales to fit under it, so it never clips the roof.
+      const ceiling = fullMeta.ceiling ?? (
+        { space: 4.0, indoor: 2.9, underground: 2.9, surreal: 2.9, outdoor: 6.0 }[fullMeta.biome] ?? 2.9
+      );
       this.monster.configure({
         octree: this.controller.octree,
         hidingSpots: this.world.hidingSpots,
         bounds: fullMeta.bounds ?? 100,
         difficulty: fullMeta.difficulty ?? 3,
+        ceiling,
       });
       const ma = rr() * Math.PI * 2;
       this.monster.spawn(sp[0] + Math.cos(ma) * 26, sp[1] + 1, sp[2] + Math.sin(ma) * 26);

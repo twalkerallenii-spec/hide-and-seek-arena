@@ -7,6 +7,7 @@ import { props } from './props.js';
 import { makeRNG, makeNoise } from './rng.js';
 import { makeTextureSet, makeGradientTexture } from './textures.js';
 import { audio } from './audio.js';
+import { makeKits } from './kits.js';
 
 export class World {
   constructor(renderer) {
@@ -59,6 +60,8 @@ export class World {
       noise,
       mat,
       props,
+      // Authored CC0 prop kits. No-ops entirely if assets/ is absent.
+      kits: makeKits(),
       tex: makeTextureSet,
       gradient: makeGradientTexture,
       audio,

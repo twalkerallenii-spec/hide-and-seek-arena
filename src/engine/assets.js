@@ -208,16 +208,31 @@ export function instancedProp(root, placements) {
   return out;
 }
 
-/** Scale a model so its bounding box is `height` metres tall, feet at y=0. */
+/**
+ * Scale a model so its bounding box is `height` metres tall, feet at y=0.
+ *
+ * Idempotent by construction: it resets the transform before measuring, so
+ * calling it a second time re-scales from the model's true size rather than
+ * from whatever it was last set to. The naive version compounds — measure a
+ * model already scaled to 2.2 m, divide 2.2 by 2.2, and you set scale to 1,
+ * which snaps a 460-unit FBX back to 460 metres tall.
+ */
 export function normaliseHeight(obj, height) {
+  obj.scale.setScalar(1);
+  obj.position.y = 0;
+  obj.updateMatrixWorld(true);
+
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
-  if (size.y <= 0) return obj;
+  if (!(size.y > 0) || !Number.isFinite(size.y)) return obj;
+
   const s = height / size.y;
   obj.scale.setScalar(s);
   obj.updateMatrixWorld(true);
-  const b2 = new THREE.Box3().setFromObject(obj);
-  obj.position.y -= b2.min.y;
+
+  const seated = new THREE.Box3().setFromObject(obj);
+  obj.position.y = -seated.min.y;
+  obj.updateMatrixWorld(true);
   return obj;
 }
 

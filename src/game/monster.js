@@ -24,12 +24,21 @@ const GRAVITY = 26;
 // idle height puts the walking silhouette at 2.83 m — under that ceiling — while
 // the rear-up during a kill peaks at ~4.06 m, which only ever happens in the
 // open. It reads as enormous next to a 1.72 m player without clipping interiors.
-const HEIGHT = 3.25;
+// It must never be taller than the room it is in. The clip poses swing a lot:
+// Walk_Close sits at 0.87x idle, but Eat/Spit rear UP to 1.25x, so the ceiling
+// has to be divided by the tallest pose, not the idle one.
+const POSE_PEAK = 1.25;
+const HEIGHT_MAX = 3.6;     // as big as it ever gets, in a hall with headroom
+// The absolute floor. 1.7 x 1.25 = 2.13 m, which clears even the 2.2 m
+// lintelled doorways in the Backrooms, so it can never wear a door frame.
+const HEIGHT_MIN = 1.7;
 
-/** The collider is deliberately NOT the visual height. A 3.25 m capsule in a
- *  2.90 m room never registers as grounded and jitters or sinks, so the physical
- *  body is capped below the tightest ceiling and the visual overhangs it. */
-const COLLIDER_HEIGHT = 2.70;
+/** Idle height that fits under `ceiling` even mid-lunge. */
+function heightForCeiling(ceiling) {
+  const fits = (ceiling - 0.12) / POSE_PEAK;
+  return Math.max(HEIGHT_MIN, Math.min(HEIGHT_MAX, fits));
+}
+
 /** From the torso, not the 3.9 m leg span — it still has to fit a 1.0 m door. */
 const RADIUS = 0.44;
 
@@ -62,9 +71,12 @@ export class Monster {
     this.actions = {};
     this.current = null;
 
+    // Sized by configure(); these are the defaults until an arena says more.
+    this.height = 2.2;
+    this.colliderHeight = 2.0;
     this.collider = new Capsule(
       new THREE.Vector3(0, RADIUS, 0),
-      new THREE.Vector3(0, COLLIDER_HEIGHT - RADIUS, 0),
+      new THREE.Vector3(0, this.colliderHeight - RADIUS, 0),
       RADIUS
     );
     this.velocity = new THREE.Vector3();
@@ -112,7 +124,7 @@ export class Monster {
     if (!src) { console.warn('monster model unavailable'); return false; }
 
     const model = instance(src);
-    normaliseHeight(model, HEIGHT);
+    normaliseHeight(model, this.height);
     model.traverse(o => {
       if (!o.isMesh && !o.isSkinnedMesh) return;
       o.castShadow = true;
@@ -149,7 +161,14 @@ export class Monster {
     return true;
   }
 
-  configure({ octree, hidingSpots = [], bounds = 100, difficulty = 3 } = {}) {
+  /**
+   * @param {number} ceiling  the lowest ceiling the monster can reach in this
+   *   arena. It is scaled to fit under it even during a rear-up, because a
+   *   monster poking through the roof breaks the illusion instantly — and a
+   *   capsule taller than the room never registers as grounded and jitters.
+   */
+  configure({ octree, hidingSpots = [], bounds = 100, difficulty = 3, ceiling = 2.9 } = {}) {
+    this.setHeight(heightForCeiling(ceiling));
     this.octree = octree;
     this.hidingSpots = hidingSpots;
     this.bounds = bounds;
@@ -162,9 +181,21 @@ export class Monster {
     this.hearRange = 11 + difficulty * 2.2;
   }
 
+  /** Resize the model and the collider together. Safe before or after load. */
+  setHeight(h) {
+    this.height = h;
+    // The body stays a little under the visual so it never scrapes the ceiling.
+    this.colliderHeight = Math.max(1.4, Math.min(h * 0.85, h - 0.25));
+    // normaliseHeight seats the feet at y=0 itself; do not clobber that.
+    if (this.model) normaliseHeight(this.model, h);
+    const p = this.position;
+    this.collider.start.set(p.x, p.y + RADIUS, p.z);
+    this.collider.end.set(p.x, p.y + this.colliderHeight - RADIUS, p.z);
+  }
+
   spawn(x, y, z) {
     this.collider.start.set(x, y + RADIUS, z);
-    this.collider.end.set(x, y + COLLIDER_HEIGHT - RADIUS, z);
+    this.collider.end.set(x, y + this.colliderHeight - RADIUS, z);
     this.velocity.set(0, 0, 0);
     this.waypoint = null;
     this.lastKnown = null;
@@ -200,7 +231,7 @@ export class Monster {
 
   _canSee(targetPos, opts) {
     const eye = this.position;
-    eye.y += COLLIDER_HEIGHT * 0.8;
+    eye.y += this.colliderHeight * 0.8;
     const to = targetPos.clone();
     to.y += 1.2;
     const d = eye.distanceTo(to);
@@ -285,7 +316,7 @@ export class Monster {
   _blocked(dir, reach) {
     const from = this.position;
     this._probe.start.set(from.x + dir.x * reach, from.y + RADIUS + 0.3, from.z + dir.z * reach);
-    this._probe.end.set(from.x + dir.x * reach, from.y + COLLIDER_HEIGHT - RADIUS, from.z + dir.z * reach);
+    this._probe.end.set(from.x + dir.x * reach, from.y + this.colliderHeight - RADIUS, from.z + dir.z * reach);
     this._probe.radius = RADIUS * 0.85;
     return !!this.octree?.capsuleIntersect(this._probe);
   }
@@ -376,7 +407,7 @@ export class Monster {
     const hunting = this.state === MSTATE.HUNT || this.state === MSTATE.ATTACK;
     this.light.intensity += ((hunting ? 6 : 1.6) - this.light.intensity) * Math.min(1, dt * 3);
     this.light.color.setHex(hunting ? 0xff2200 : 0x7a1a08);
-    this.light.position.set(0, HEIGHT * 0.55, 0);
+    this.light.position.set(0, this.height * 0.55, 0);
   }
 
   _think(dt, target, canCatch) {
@@ -460,7 +491,7 @@ export class Monster {
    */
   _setLocomotion(speed, hunting) {
     const clip = hunting ? CLIP.hunt : CLIP.walk;
-    const strideMetres = 0.56 * (HEIGHT / 3.25);
+    const strideMetres = 0.56 * (this.height / 3.25);
     const scale = Math.max(0.5, Math.min(3.2, (speed * 0.63) / strideMetres));
     this._play(clip, 0.22, scale);
     this._cadence = scale;
@@ -468,7 +499,7 @@ export class Monster {
 
   /** Reported for tuning: how far it moves per animation cycle. */
   strideReport(speed) {
-    const strideMetres = 0.56 * (HEIGHT / 3.25);
+    const strideMetres = 0.56 * (this.height / 3.25);
     const scale = Math.max(0.5, Math.min(3.2, (speed * 0.63) / strideMetres));
     return { speed, strideMetres, timeScale: scale, metresPerCycle: speed * (0.63 / scale) };
   }
