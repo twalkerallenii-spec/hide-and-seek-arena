@@ -7,6 +7,9 @@
 // Everything else 404s. Binds 0.0.0.0 on process.env.PORT.
 
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { Room, CAPACITY, TICK_HZ } from './room.js';
 import { handleVoice, voicePeerLeft } from './signal.js';
@@ -171,7 +174,7 @@ function statusPage() {
   <h1>Hide &amp; Seek</h1>
   <p>This is the multiplayer server. It has no interface — it only speaks
      WebSocket to the game. <strong>The game itself is somewhere else:</strong></p>
-  <a class=play href="https://twalkerallenii-spec.github.io/hide-and-seek-arena/">Play the game</a>
+  <a class=play href="/">Play the game</a>
   <table>
     ${row('status', '<span class=ok>healthy</span>')}
     ${row('uptime', up)}
@@ -185,6 +188,67 @@ function statusPage() {
 </div>`;
 }
 
+
+// ----------------------------------------------------------------------------
+// static client
+//
+// The game and the server ship as ONE Render service: one URL, one origin, no
+// CORS, and a WebSocket same-origin with the page that opened it — which
+// removes an entire class of "why won't it connect".
+// ----------------------------------------------------------------------------
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CLIENT_ROOT = path.resolve(__dirname, '..');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml', '.webp': 'image/webp', '.ico': 'image/x-icon',
+  '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream', '.fbx': 'application/octet-stream',
+  '.woff2': 'font/woff2', '.md': 'text/markdown; charset=utf-8',
+};
+
+/** Only these are reachable. Everything else on disk stays private. */
+const SERVE_DIRS = new Set(['src', 'styles', 'assets', 'docs']);
+const SERVE_FILES = new Set(['/index.html', '/favicon.ico', '/README.md']);
+
+function serveStatic(url, res) {
+  let rel = url;
+  try { rel = decodeURIComponent(url); } catch { return false; }
+  if (rel === '/' || rel === '') rel = '/index.html';
+
+  const top = rel.split('/')[1] || '';
+  if (!SERVE_DIRS.has(top) && !SERVE_FILES.has(rel)) return false;
+
+  const full = path.resolve(CLIENT_ROOT, '.' + rel);
+  // Never let a crafted path climb out of the client root.
+  if (full !== CLIENT_ROOT && !full.startsWith(CLIENT_ROOT + path.sep)) return false;
+
+  let data;
+  try {
+    const st = fs.statSync(full);
+    if (!st.isFile()) return false;
+    data = fs.readFileSync(full);
+  } catch { return false; }
+
+  // Assets change only when the repo does, so they cache hard. HTML and source
+  // must not, or a deploy would never reach anyone already holding them.
+  const immutable = top === 'assets';
+  res.writeHead(200, {
+    'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream',
+    'Content-Length': data.length,
+    'Cache-Control': immutable ? 'public, max-age=86400' : 'no-cache',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(data);
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   const origin = req.headers.origin;
   const url = (req.url || '/').split('?')[0];
@@ -193,7 +257,8 @@ const server = http.createServer((req, res) => {
 
   // `/` is for humans who typed the hostname into a browser. Render's health
   // check and the game client both want JSON, and they ask for /health.
-  if (url === '/') {
+  // The game lives at `/` now. The service status page moved to /status.
+  if (url === '/status') {
     // corsHeaders uses 'Content-Type' capitalised; a lowercase key here would
     // be a second, separate header rather than an override.
     res.writeHead(200, { ...corsHeaders(origin), 'Content-Type': 'text/html; charset=utf-8' });
@@ -210,6 +275,9 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ...health(), detail: [...rooms.values()].map(r => r.stats()) }));
     return;
   }
+  // Anything else is the game itself.
+  if (serveStatic(url, res)) return;
+
   res.writeHead(404, corsHeaders(origin));
   res.end('{"error":"not_found"}');
 });

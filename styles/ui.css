@@ -535,3 +535,51 @@ h1, h2, h3, .display {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+
+/* ===================================================== LAUNCH PANEL ====== */
+/* The PLAY tab is one decision: start. Choosing a map was a choice nobody
+   wanted to make eleven times an evening, so the arena is picked for you and
+   this panel just sets the mood and gets out of the way. */
+.launch {
+  position: relative; height: 100%; min-height: 320px;
+  border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--line); isolation: isolate;
+}
+.launch-art { position: absolute; inset: 0; z-index: -2; }
+.launch-art canvas {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  animation: launchDrift 26s ease-in-out infinite alternate;
+}
+@keyframes launchDrift { from { transform: scale(1.04) translateX(-1%); } to { transform: scale(1.12) translateX(1%); } }
+.launch-scrim {
+  position: absolute; inset: 0; z-index: -1;
+  background:
+    linear-gradient(90deg, rgba(5,6,9,.94) 0%, rgba(5,6,9,.72) 42%, rgba(5,6,9,.25) 100%),
+    linear-gradient(0deg, rgba(5,6,9,.9), transparent 55%);
+}
+.launch-body {
+  position: absolute; inset: auto auto 0 0; padding: clamp(20px, 4vw, 46px);
+  max-width: min(620px, 90%); display: grid; gap: 12px; justify-items: start;
+}
+.launch-tag {
+  font-family: var(--font-mono); font-size: .64rem; letter-spacing: .38em;
+  color: var(--gold-1);
+}
+.launch-title {
+  font-family: var(--font-display); font-size: clamp(2rem, 5.5vw, 3.4rem);
+  letter-spacing: .07em; transform: skewX(var(--skew)); line-height: 1;
+  text-shadow: 0 3px 0 #000, 0 0 60px rgba(0,0,0,.8);
+}
+.launch-sub { color: var(--ink-dim); font-size: .92rem; max-width: 44ch; line-height: 1.5; }
+.launch .mutators { margin-top: 6px; }
+
+/* the arena list, demoted to a record of where you have been */
+.arena-grid.small { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; margin-top: 12px; }
+.arena-grid.small .arena-card { aspect-ratio: 3 / 4; cursor: default; }
+.arena-grid.small .arena-card:hover { transform: none; }
+.arena-grid.small .arena-card .tagline,
+.arena-grid.small .arena-card .meta { display: none; }
+.arena-grid.small .arena-card h3 { font-size: .68rem; letter-spacing: .02em; }
+.arena-grid.small .arena-card .idx { font-size: 1.5rem; }
+.arena-grid.small .arena-card .body { padding: 8px; }

@@ -21,7 +21,16 @@ export function resolveServerUrl() {
     if (q) return q;
   } catch { }
   if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
-    return `ws://${loc.hostname}:8137/ws`;
+    // Served by the game server itself in dev: same port, same origin.
+    const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${loc.host}/ws`;
+  }
+  // The game and the server are one deployment, so the socket is same-origin.
+  // Falling back to the known host keeps the GitHub Pages mirror working.
+  if (loc.protocol === 'https:' || loc.protocol === 'http:') {
+    if (/onrender\.com$/.test(loc.hostname)) {
+      return `wss://${loc.host}/ws`;
+    }
   }
   return SERVER_URL;
 }
@@ -32,6 +41,8 @@ export function resolveServerUrl() {
  */
 export function wakeServer() {
   if (typeof fetch !== 'function') return;
+  // Same-origin deploys are already awake — the page just loaded from it.
+  try { if (/onrender\.com$/.test(location.hostname)) return; } catch { }
   try { fetch(HEALTH_URL, { mode: 'cors', cache: 'no-store' }).catch(() => { }); }
   catch { }
 }

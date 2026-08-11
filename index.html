@@ -70,11 +70,16 @@
   <main class="panel">
     <!-- PLAY ------------------------------------------------- -->
     <section class="tabpage active" id="page-play" role="tabpanel" aria-labelledby="tab-play">
-      <div class="page-head">
-        <h2 id="arenaGridLabel">SELECT ARENA</h2>
-        <div class="mutators" id="mutatorStrip" role="group" aria-label="Run mutators"></div>
+      <div class="launch">
+        <div class="launch-art" id="launchArt" aria-hidden="true"></div>
+        <div class="launch-scrim"></div>
+        <div class="launch-body">
+          <div class="launch-tag" id="launchTag">THE HUNT</div>
+          <h2 class="launch-title" id="launchTitle">ELEVEN SLOTS</h2>
+          <p class="launch-sub" id="launchSub">One seeker. Ten hiders. Thirty seconds to disappear.</p>
+          <div class="mutators" id="mutatorStrip" role="group" aria-label="Run modifiers"></div>
+        </div>
       </div>
-      <div class="arena-grid" id="arenaGrid" role="listbox" aria-labelledby="arenaGridLabel"></div>
     </section>
 
     <!-- LOCKER ----------------------------------------------- -->
@@ -130,6 +135,11 @@
             <li><kbd>Esc</kbd> Pause</li>
           </ul>
         </div>
+        <div class="card wide">
+          <h3 id="arenaGridLabel">THE TWELVE ARENAS</h3>
+          <p class="hint">Where the hunt happens is chosen for you. This is the record of what you have seen.</p>
+          <div class="arena-grid small" id="arenaGrid" role="list" aria-labelledby="arenaGridLabel"></div>
+        </div>
         <div class="card">
           <h3 id="pupBoardLabel">THE PUP</h3>
           <p class="hint">One small dog is hidden in every single arena. Find all twelve.</p>
@@ -146,7 +156,7 @@
 
   <footer class="menu-foot">
     <div class="build">BUILD 1.0 · TWELVE ARENAS</div>
-    <button class="btn play" type="button" id="btnPlay">PLAY</button>
+    <button class="btn play" type="button" id="btnPlay">START</button>
   </footer>
 </div>
 

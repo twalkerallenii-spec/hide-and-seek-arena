@@ -12,11 +12,10 @@ services:
     runtime: node
     plan: free
     region: oregon
-    rootDir: server
     branch: main
     autoDeploy: true
-    buildCommand: npm install
-    startCommand: node index.js
+    buildCommand: cd server && npm install
+    startCommand: node server/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

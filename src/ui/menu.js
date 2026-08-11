@@ -1,6 +1,6 @@
 // Front end: arena select, locker, store, settings, pause and results screens.
 
-import { ARENA_LIST } from '../arenas/index.js';
+import { ARENA_LIST, metaIndex } from '../arenas/index.js';
 import { SKINS, UPGRADES, MUTATORS, POWERUPS, LOADING_TIPS } from '../game/content.js';
 import { save } from '../game/state.js';
 import { audio } from '../engine/audio.js';
@@ -16,7 +16,10 @@ function screen(id, on) {
 export class Menu {
   constructor(game) {
     this.game = game;
+    // Nobody picks a map any more — the hunt picks one for you. Kept as a
+    // field because main.js reads it when START is pressed.
     this.selected = ARENA_LIST[0]?.id || 'backrooms';
+    this._rollArena();
     this._built = false;
   }
 
@@ -39,8 +42,11 @@ export class Menu {
     }
 
     $('btnPlay').addEventListener('click', () => {
+      if (this._busy) return;             // double-click guard
+      this._busy = true;
       audio.ui('confirm');
-      this.game.startArena(this.selected);
+      this.game.startArena(this._rollArena());
+      setTimeout(() => { this._busy = false; }, 1500);
     });
     $('btnCredits').addEventListener('click', () => { audio.ui('click'); this.game.rollCredits(); });
     $('btnWipe').addEventListener('click', () => {
@@ -68,8 +74,39 @@ export class Menu {
     this.refresh();
   }
 
+  /**
+   * Pick the arena for the next round. Weighted toward places this player has
+   * not been, so the twelve get seen rather than the first one getting worn out.
+   */
+  _rollArena() {
+    const pool = ARENA_LIST.filter(a => !save.arena(a.id).visited);
+    const from = pool.length ? pool : ARENA_LIST;
+    const pick = from[Math.floor(Math.random() * from.length)];
+    if (pick) this.selected = pick.id;
+    return this.selected;
+  }
+
+  /** Dress the launch panel with whichever arena came up. */
+  _renderLaunch() {
+    const meta = metaIndex[this.selected] || ARENA_LIST[0];
+    if (!meta) return;
+    const art = $('launchArt');
+    if (art) { art.innerHTML = ''; art.appendChild(arenaCardArt(meta)); }
+    const hunt = save.settings.mode !== 'solo';
+    const tag = $('launchTag'), title = $('launchTitle'), sub = $('launchSub');
+    if (tag) tag.textContent = hunt ? 'THE HUNT · 11 SLOTS' : 'SOLO · EXPLORE';
+    if (title) title.textContent = meta.name;
+    if (sub) {
+      sub.textContent = hunt
+        ? 'One seeker. Ten hiders. Thirty seconds to disappear.'
+        : 'No monster. Take the place apart at your own pace.';
+    }
+    this.game.previewArena?.(meta);
+  }
+
   refresh() {
     this._renderHeader();
+    this._renderLaunch();
     this._renderArenas();
     this._renderSkins();
     this._renderStore();
@@ -102,7 +139,7 @@ export class Menu {
     for (const meta of ARENA_LIST) {
       const rec = save.arena(meta.id);
       const card = document.createElement('div');
-      card.className = 'arena-card' + (meta.id === this.selected ? ' selected' : '');
+      card.className = 'arena-card' + (rec.visited ? '' : ' locked');
       card.tabIndex = 0;
 
       const art = document.createElement('div');
@@ -143,16 +180,9 @@ export class Menu {
         </div>`;
       card.appendChild(body);
 
-      const pick = () => {
-        audio.ui('click');
-        this.selected = meta.id;
-        this._renderArenas();
-        this.game.previewArena?.(meta);
-      };
-      card.addEventListener('click', pick);
-      card.addEventListener('dblclick', () => this.game.startArena(meta.id));
-      card.addEventListener('keydown', (e) => { if (e.key === 'Enter') pick(); });
-      card.addEventListener('mouseenter', () => audio.ui('hover'));
+      // Read-only: this is a record of where you have been, not a menu.
+      card.tabIndex = -1;
+      card.title = `${meta.name} — ${meta.tagline}`;
 
       grid.appendChild(card);
     }
@@ -315,6 +345,7 @@ export class Menu {
       save.set('mode', save.settings.mode === 'solo' ? 'round' : 'solo');
       audio.ui('click');
       paint();
+      this._renderLaunch();
     });
     paint();
     strip.parentNode.insertBefore(btn, strip);
