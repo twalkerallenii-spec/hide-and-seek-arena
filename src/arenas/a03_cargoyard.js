@@ -2073,4 +2073,20 @@ export async function build(ctx) {
       shafts[i].opacity = 0.055 + Math.sin(el * 0.35 + i * 1.7) * 0.022;
     }
   });
+
+  // ===========================================================================
+  // AUTHORED PROPS — dockside clutter around the warehouse and the quay.
+  // Kept out of the container maze itself, which already has all the cover it
+  // needs, and off the water.
+  // ===========================================================================
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CONTAINERS', count: 30, seed: 'cy-cont',
+    area: (r) => ({ x: r.range(-100, 100), y: 0, z: r.range(-40, 90) }),
+    accept: (p) => p.z > -35 && Math.hypot(p.x, p.z - 68) > 7,
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'DEBRIS', count: 34, seed: 'cy-debris', hide: false,
+    area: (r) => ({ x: r.range(-100, 100), y: 0, z: r.range(-30, 90) }),
+  });
+
 }

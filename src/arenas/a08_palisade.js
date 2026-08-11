@@ -2314,5 +2314,20 @@ export async function build(ctx) {
     proxy.userData.collide = true;
     ctx.add(proxy);
   }
+
+  // ===========================================================================
+  // AUTHORED PROPS — back-of-house crates and roll-cage clutter. The retail
+  // floors are already dressed by hand; this is the service level, which was
+  // deliberately bare concrete.
+  // ===========================================================================
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CONTAINERS', count: 26, seed: 'pl-cont',
+    area: (r) => ({ x: r.range(-70, 70), y: -5, z: r.range(-26, 26) }),
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CLUTTER', count: 26, seed: 'pl-clutter', hide: false, collide: false,
+    area: (r) => ({ x: r.range(-70, 70), y: r.pick([-5, 0]), z: r.range(-26, 26) }),
+  });
+
 }
 

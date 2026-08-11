@@ -1617,4 +1617,22 @@ export async function build(ctx) {
   }
   // collapsed rubble
   hide(CXC(5), 0.9, CZC(15), 1.6, 0.8);
+
+  // ===========================================================================
+  // AUTHORED PROPS — deliberately almost nothing.
+  //
+  // Emptiness IS the Backrooms. A handful of objects that have no business
+  // being here reads as far more wrong than a room full of clutter, so this is
+  // a dozen items across 200 m and no more.
+  // ===========================================================================
+  const B = 92;
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CONTAINERS', count: 9, seed: 'br-boxes',
+    area: (r) => ({ x: r.range(-B, B), y: 0, z: r.range(-B, B) }),
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CLUTTER', count: 14, seed: 'br-clutter', hide: false, collide: false,
+    area: (r) => ({ x: r.range(-B, B), y: 0, z: r.range(-B, B) }),
+  });
+
 }
