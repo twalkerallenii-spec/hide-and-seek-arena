@@ -1,0 +1,42 @@
+# Keep the Render free tier awake.
+#
+# Free web services sleep after ~15 minutes idle and take 30-60 s to cold start.
+# The game itself is now served from that same service, so a sleeping dyno means
+# the first visitor stares at a blank page for a minute. A cheap GET every ten
+# minutes keeps it up.
+#
+# GitHub's scheduler is best-effort and often runs late. That is fine: the
+# window is 15 minutes and we are aiming at 10.
+
+name: keep-warm
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Wake the server
+        run: |
+          URL="https://hide-and-seek-arena-server.onrender.com/health"
+          # A cold start can take 60 s, so allow for it rather than failing.
+          code=$(curl -fsS -o /tmp/health.json -w '%{http_code}' \
+                   --max-time 90 --retry 2 --retry-delay 20 "$URL" || echo 000)
+          echo "HTTP $code"
+          cat /tmp/health.json 2>/dev/null || true
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::warning::server did not answer 200 (got $code)"
+            exit 0   # a missed ping is not worth a red build
+          fi
