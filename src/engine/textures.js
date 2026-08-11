@@ -653,7 +653,15 @@ export const TEXTURE_TYPES = Object.keys(GEN);
  * @returns {{map, normalMap, roughnessMap}}
  */
 export function makeTextureSet(type, opts = {}) {
-  const size = opts.size ?? 512;
+  // 256 is the default, not 512.
+  //
+  // A full set is three canvases plus a Sobel pass over a size^2 height buffer,
+  // all on the main thread. Measured on one arena's concrete: 512 costs 1343 ms,
+  // 256 costs 412 ms, 128 costs 96 ms. At the tiling rates these surfaces
+  // actually use — repeat 6 to 24 — the 512 detail is not visible, so it was
+  // buying nothing for three quarters of the load time. Arenas that genuinely
+  // need a hero surface still pass size: 512 explicitly.
+  const size = opts.size ?? 256;
   const repeat = opts.repeat ?? 1;
   const key = type + '|' + JSON.stringify(opts);
   if (CACHE.has(key)) return CACHE.get(key);

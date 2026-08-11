@@ -2080,12 +2080,12 @@ export async function build(ctx) {
   // needs, and off the water.
   // ===========================================================================
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CONTAINERS', count: 30, seed: 'cy-cont',
+    kit: 'CONTAINERS', count: 14, seed: 'cy-cont',
     area: (r) => ({ x: r.range(-100, 100), y: 0, z: r.range(-40, 90) }),
     accept: (p) => p.z > -35 && Math.hypot(p.x, p.z - 68) > 7,
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'DEBRIS', count: 34, seed: 'cy-debris', hide: false,
+    kit: 'DEBRIS', count: 10, seed: 'cy-debris', hide: false,
     area: (r) => ({ x: r.range(-100, 100), y: 0, z: r.range(-30, 90) }),
   });
 

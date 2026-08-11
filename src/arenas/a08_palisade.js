@@ -2321,11 +2321,11 @@ export async function build(ctx) {
   // deliberately bare concrete.
   // ===========================================================================
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CONTAINERS', count: 26, seed: 'pl-cont',
+    kit: 'CONTAINERS', count: 12, seed: 'pl-cont',
     area: (r) => ({ x: r.range(-70, 70), y: -5, z: r.range(-26, 26) }),
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CLUTTER', count: 26, seed: 'pl-clutter', hide: false, collide: false,
+    kit: 'CLUTTER', count: 8, seed: 'pl-clutter', hide: false, collide: false,
     area: (r) => ({ x: r.range(-70, 70), y: r.pick([-5, 0]), z: r.range(-26, 26) }),
   });
 

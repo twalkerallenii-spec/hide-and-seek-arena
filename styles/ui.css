@@ -583,3 +583,48 @@ h1, h2, h3, .display {
 .arena-grid.small .arena-card h3 { font-size: .68rem; letter-spacing: .02em; }
 .arena-grid.small .arena-card .idx { font-size: 1.5rem; }
 .arena-grid.small .arena-card .body { padding: 8px; }
+
+
+/* ================================================== LOADING SCREEN ======= */
+/* The build blocks the main thread in bursts, so a CSS-driven spinner would
+   stutter. These animations are cheap and the build yields between phases, so
+   the screen stays alive instead of freezing on a static bar. */
+.load-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; opacity: .5; }
+.load-inner { position: relative; }
+.load-rings { position: absolute; right: -10px; top: 50%; width: 190px; margin-top: -95px; opacity: .5; }
+@media (max-width: 900px) { .load-rings { display: none; } }
+.load-rings svg { width: 100%; overflow: visible; }
+.load-rings .lr { fill: none; stroke: var(--accent); stroke-width: 1.4; opacity: .6; transform-origin: 60px 60px; }
+.load-rings .lr1 { animation: spin 6s linear infinite; stroke-dasharray: 64 26; }
+.load-rings .lr2 { animation: spin 4s linear infinite reverse; stroke-dasharray: 30 16; }
+.load-rings .lr3 { animation: spin 2.6s linear infinite; stroke-dasharray: 12 9; }
+.load-rings .lrp { fill: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+
+.load-title {
+  font-size: clamp(2.2rem, 6vw, 3.6rem); letter-spacing: .04em;
+  transform: skewX(var(--skew));
+  animation: loadIn .5s cubic-bezier(.2,.8,.2,1) both;
+}
+.load-tag { animation: loadIn .4s cubic-bezier(.2,.8,.2,1) both; }
+.load-sub { animation: loadIn .6s .08s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes loadIn { from { opacity: 0; transform: translateY(14px) skewX(var(--skew)); } }
+
+.load-bar { position: relative; }
+/* A sheen that travels the bar, so the screen reads as busy even while a
+   synchronous chunk of work has the thread. */
+.load-bar::after {
+  content: ''; position: absolute; inset: 0; border-radius: 99px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat;
+  animation: sheen 1.25s linear infinite;
+}
+@keyframes sheen { from { background-position: -45% 0; } to { background-position: 145% 0; } }
+
+.load-step {
+  margin-top: 10px; font-family: var(--font-mono); font-size: .62rem;
+  letter-spacing: .3em; color: var(--accent); text-transform: uppercase;
+  min-height: 1em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .load-bar::after, .load-rings .lr, .load-rings .lrp { animation: none; }
+}

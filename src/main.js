@@ -23,6 +23,7 @@ import { Monster } from './game/monster.js';
 import { Avatar, CHARACTERS } from './game/avatar.js';
 import { makeRNG } from './engine/rng.js';
 import { setAssetRenderer, loadManifest } from './engine/assets.js';
+import { ProximityGrid } from './engine/proximity.js';
 import { NetClient } from './net/client.js';
 import { Voice } from './net/voice.js';
 import { resolveServerUrl, wakeServer } from './net/config.js';
@@ -58,6 +59,8 @@ class Game {
 
     status('BUILDING WORLD HOST', 0.3);
     this.world = new World(this.renderer);
+    // Draw-call culling by distance. See engine/proximity.js.
+    this.proximity = new ProximityGrid({ cell: 24, radius: 90 });
     this.controller = new FirstPersonController(this.renderer.camera, canvas);
     this.controller.sensitivity = 0.0022 * save.settings.sensitivity;
     this.controller.invertY = save.settings.invertY;
@@ -378,6 +381,7 @@ class Game {
     this.controller.enabled = false;
     this.controller.unlock();
     this.hud.show(false);
+    this.proximity.showAll();     // never leave an arena half-hidden
     this.menu.hidePause();
     this.menu.hideResults();
     this.menu.hideLoading();
@@ -427,6 +431,7 @@ class Game {
     audio.stopMusic();
     await frame();
 
+    this.menu.loadStep('FETCHING ARENA');
     let mod;
     try {
       mod = await loadArena(id);
@@ -446,6 +451,8 @@ class Game {
 
     // ---- build the world ---------------------------------------------------
     this.renderer.attach(this.world.scene);
+    this.menu.loadStep('GENERATING SURFACES');
+    await frame();
     let ctx;
     try {
       ctx = await this.world.load(fullMeta, mod.build, this.renderer.quality);
@@ -458,12 +465,22 @@ class Game {
     await frame();
 
     // ---- collision ---------------------------------------------------------
+    this.menu.loadStep('BAKING COLLISION');
+    await frame(); await frame();     // let the bar and the backdrop repaint
     const n = this.controller.buildCollision(this.world.root);
     console.info(`[${id}] collision meshes: ${n}`);
     this.menu.loadProgress(0.8);
     await frame();
 
+    // ---- proximity meshing --------------------------------------------------
+    this.menu.loadStep('PARTITIONING WORLD');
+    await frame();
+    this.proximity.build(this.world.root);
+    const px = this.proximity.stats;
+    console.info(`[${id}] proximity: ${px.buckets} buckets over ${px.objects} objects (${px.always} always-on)`);
+
     // ---- gameplay layers ---------------------------------------------------
+    this.menu.loadStep('PLACING PICKUPS');
     this.pickups.build(this.world.pickups, { scarcity: this.mutatorOn('scarcity') });
     this.seeker.configure({
       difficulty: fullMeta.difficulty ?? 3,
@@ -560,6 +577,8 @@ class Game {
       if (url && this.net.status === 'offline') {
         this.net.connect(url, { name: save.data.name || 'PLAYER', room: id });
       }
+      this.menu.loadStep('WAKING THE SEEKER');
+      await frame();
       if (!this.monster.loaded) await this.monster.load();
       // An arena can declare its tightest ceiling; otherwise infer from biome.
       // The monster scales to fit under it, so it never clips the roof.
@@ -584,6 +603,7 @@ class Game {
       this.monster.root.removeFromParent();
     }
 
+    this.menu.loadStep('READY');
     this.menu.loadProgress(1);
     await sleep(220);
     this.menu.hideLoading();
@@ -945,6 +965,12 @@ class Game {
       if (this.net.connected) {
         this.net.send('pos', { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +c.yaw.toFixed(2) });
       }
+
+      // Hide everything the fog has already eaten. Free camera turns it off,
+      // because the whole point of free camera is looking at the arena.
+      this.proximity.enabled = !c.noclip;
+      if (c.noclip) this.proximity.showAll();
+      else this.proximity.update(p.x, p.z);
 
       if (this._respawnAt && this.runTime >= this._respawnAt) {
         this._respawnAt = 0;

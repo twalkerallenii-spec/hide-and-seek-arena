@@ -1872,16 +1872,16 @@ export async function build(ctx) {
   // A foundry is the one place a rusted iron barrel needs no excuse.
   // ===========================================================================
   await ctx.kits.scatterKit(ctx, {
-    kit: 'COVER', count: 30, seed: 'fg-cover',
+    kit: 'COVER', count: 14, seed: 'fg-cover',
     area: (r) => ({ x: r.range(-70, 70), y: 0, z: r.range(-60, 60) }),
     accept: (p) => Math.hypot(p.x - 8, p.z - 6) > 6,
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'DEBRIS', count: 44, seed: 'fg-debris', hide: false,
+    kit: 'DEBRIS', count: 12, seed: 'fg-debris', hide: false,
     area: (r) => ({ x: r.range(-72, 72), y: r.chance(0.25) ? -5 : 0, z: r.range(-62, 62) }),
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CONTAINERS', count: 18, seed: 'fg-cont',
+    kit: 'CONTAINERS', count: 8, seed: 'fg-cont',
     area: (r) => ({ x: r.range(-68, 68), y: 0, z: r.range(-58, 58) }),
   });
 

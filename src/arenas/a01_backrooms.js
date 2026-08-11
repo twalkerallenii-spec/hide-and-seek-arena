@@ -1627,11 +1627,11 @@ export async function build(ctx) {
   // ===========================================================================
   const B = 92;
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CONTAINERS', count: 9, seed: 'br-boxes',
+    kit: 'CONTAINERS', count: 5, seed: 'br-boxes',
     area: (r) => ({ x: r.range(-B, B), y: 0, z: r.range(-B, B) }),
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CLUTTER', count: 14, seed: 'br-clutter', hide: false, collide: false,
+    kit: 'CLUTTER', count: 6, seed: 'br-clutter', hide: false, collide: false,
     area: (r) => ({ x: r.range(-B, B), y: 0, z: r.range(-B, B) }),
   });
 

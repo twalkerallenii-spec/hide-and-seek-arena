@@ -1800,21 +1800,21 @@ export async function build(ctx) {
   // ===========================================================================
   const inService = (x, z) => Math.abs(x) < 62 && Math.abs(z) < 56;
   await ctx.kits.scatterKit(ctx, {
-    kit: 'COVER', count: 34, seed: 'uc-cover',
+    kit: 'COVER', count: 16, seed: 'uc-cover',
     area: (r) => ({ x: r.range(-58, 58), y: 0, z: r.range(-52, 52) }),
     accept: (p) => inService(p.x, p.z) && Math.hypot(p.x + 23, p.z + 51) > 6,
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CONTAINERS', count: 22, seed: 'uc-cont',
+    kit: 'CONTAINERS', count: 10, seed: 'uc-cont',
     area: (r) => ({ x: r.range(-56, 56), y: -9, z: r.range(-20, 20) }),
     accept: (p) => Math.hypot(p.x, p.z) > 11,     // clear of the reactor core
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'DEBRIS', count: 40, seed: 'uc-debris', hide: false,
+    kit: 'DEBRIS', count: 12, seed: 'uc-debris', hide: false,
     area: (r) => ({ x: r.range(-58, 58), y: r.chance(0.5) ? 0 : -20, z: r.range(-52, 52) }),
   });
   await ctx.kits.scatterKit(ctx, {
-    kit: 'CLUTTER', count: 30, seed: 'uc-clutter', hide: false, collide: false,
+    kit: 'CLUTTER', count: 8, seed: 'uc-clutter', hide: false, collide: false,
     area: (r) => ({ x: r.range(-56, 56), y: 0, z: r.range(-50, 50) }),
   });
 }

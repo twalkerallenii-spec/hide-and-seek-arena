@@ -162,12 +162,22 @@
 
 <!-- ===================== LOADING ARENA ===================== -->
 <div id="loading" class="screen" aria-live="polite">
+  <canvas class="load-bg" id="loadBg" aria-hidden="true"></canvas>
   <div class="load-inner">
+    <div class="load-rings" aria-hidden="true">
+      <svg viewBox="0 0 120 120">
+        <circle class="lr lr1" cx="60" cy="60" r="52"/>
+        <circle class="lr lr2" cx="60" cy="60" r="38"/>
+        <circle class="lr lr3" cx="60" cy="60" r="24"/>
+        <circle class="lrp" cx="60" cy="60" r="8"/>
+      </svg>
+    </div>
     <div class="load-tag" id="loadTag">ARENA</div>
     <h1 class="load-title" id="loadTitle">LOADING</h1>
     <p class="load-sub" id="loadSub"></p>
     <div class="load-bar" id="loadBar" role="progressbar" aria-label="Arena loading"
          aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="loadFill"></i></div>
+    <div class="load-step" id="loadStep">PREPARING</div>
     <div class="load-tip" id="loadTip"></div>
   </div>
 </div>

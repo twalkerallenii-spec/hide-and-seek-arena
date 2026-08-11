@@ -454,6 +454,53 @@ export class Menu {
 
 
   // -------------------------------------------------------------- loading
+  /**
+   * The backdrop: the arena's own card art, slowly drifting, with a scanline
+   * sweep over it. Painted on a canvas rather than in CSS so it keeps moving
+   * even while the main thread is mid-build — a CSS animation on a blocked
+   * thread just freezes.
+   */
+  _startLoadBackdrop(meta) {
+    const cv = $('loadBg');
+    if (!cv) return;
+    const art = arenaCardArt(meta);
+    const fit = () => { cv.width = Math.min(1280, innerWidth); cv.height = Math.min(720, innerHeight); };
+    fit();
+    const ctx2 = cv.getContext('2d');
+    if (!ctx2) return;
+    let t = 0;
+    cancelAnimationFrame(this._loadRaf);
+    const draw = () => {
+      t += 1 / 60;
+      const W = cv.width, H = cv.height;
+      ctx2.clearRect(0, 0, W, H);
+      // slow ken-burns on the arena art
+      const z = 1.06 + Math.sin(t * 0.18) * 0.04;
+      const ox = Math.sin(t * 0.11) * W * 0.02;
+      ctx2.globalAlpha = 0.55;
+      ctx2.drawImage(art, ox - (W * (z - 1)) / 2, -(H * (z - 1)) / 2, W * z, H * z);
+      ctx2.globalAlpha = 1;
+      // a scan bar travelling down, echoing the Seeker's sweep
+      const y = ((t * 0.22) % 1) * H;
+      const g = ctx2.createLinearGradient(0, y - 90, 0, y + 90);
+      g.addColorStop(0, 'rgba(70,224,255,0)');
+      g.addColorStop(0.5, 'rgba(70,224,255,0.20)');
+      g.addColorStop(1, 'rgba(70,224,255,0)');
+      ctx2.fillStyle = g;
+      ctx2.fillRect(0, y - 90, W, 180);
+      this._loadRaf = requestAnimationFrame(draw);
+    };
+    draw();
+  }
+
+  _stopLoadBackdrop() { cancelAnimationFrame(this._loadRaf); this._loadRaf = 0; }
+
+  /** What the game is doing right now, in words. */
+  loadStep(text) {
+    const el = $('loadStep');
+    if (el) el.textContent = text;
+  }
+
   showLoading(meta) {
     screen('loading', true);
     $('loadTag').textContent = `ARENA ${String(meta.order).padStart(2, '0')} · ${(meta.biome || '').toUpperCase()}`;
@@ -461,9 +508,22 @@ export class Menu {
     $('loadSub').textContent = meta.tagline;
     $('loadTip').textContent = LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)];
     $('loadFill').style.width = '0%';
+    this._loadShown = 0;
+    this.loadStep('PREPARING');
+    this._startLoadBackdrop(meta);
   }
-  loadProgress(p) { $('loadFill').style.width = (p * 100).toFixed(0) + '%'; }
-  hideLoading() { screen('loading', false); }
+  /** Never let the bar go backwards, and never let it jump the whole way. */
+  loadProgress(p) {
+    this._loadShown = Math.max(this._loadShown ?? 0, Math.min(1, p));
+    const pct = (this._loadShown * 100).toFixed(0);
+    $('loadFill').style.width = pct + '%';
+    $('loadBar')?.setAttribute('aria-valuenow', pct);
+  }
+
+  hideLoading() {
+    this._stopLoadBackdrop();
+    screen('loading', false);
+  }
 
   // -------------------------------------------------------------- pause
   showPause(stats) {
