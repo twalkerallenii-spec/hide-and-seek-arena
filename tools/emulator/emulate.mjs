@@ -386,6 +386,27 @@ for (const id of arenas) {
       warn(`${id}: the monster never loaded`);
     }
     note(`hiding spots: ${game.world.hidingSpots.length}, pickups: ${game.pickups.items.length}`);
+
+    if (roundMode) {
+      const seeker = game.round.localIsSeeker;
+      const tp = game.controller.thirdPerson;
+      note(`role: ${seeker ? 'SEEKER' : 'HIDER'} — camera ${tp ? 'third person' : 'first person'}`);
+      if (seeker && tp) bad(`${id}: the seeker should play FIRST person`);
+      if (!seeker && !tp && game.round.phase !== 'lobby' && game.round.phase !== 'wheel') {
+        bad(`${id}: a hider should play THIRD person`);
+      }
+      if (tp) {
+        if (!game.avatar?.loaded) bad(`${id}: third person but the avatar never loaded`);
+        else {
+          note(`avatar: ${game.avatar.which}, visible=${game.avatar.root.visible}`);
+          // The boom must actually pull the camera off the player's head.
+          const camDist = game.renderer.camera.position.distanceTo(game.controller.position);
+          note(`camera boom: ${camDist.toFixed(2)}m from the player`);
+          if (camDist < 0.6) warn(`${id}: boom collapsed to ${camDist.toFixed(2)}m — camera is inside the player`);
+          if (camDist > 6) warn(`${id}: boom is ${camDist.toFixed(2)}m — further than intended`);
+        }
+      }
+    }
   }
 
   // Pause / resume / back to menu must all work.

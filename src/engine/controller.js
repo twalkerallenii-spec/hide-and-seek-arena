@@ -49,6 +49,15 @@ export class FirstPersonController {
     this.crouching = false;
     this.sprinting = false;
     this.noclip = false;
+
+    // Third person. The Seeker plays first person — you are the monster — and
+    // everyone else plays over the shoulder, so they can see their own body
+    // and read what it is doing behind cover.
+    this.thirdPerson = false;
+    this.boom = 3.4;            // how far back the camera sits
+    this.boomHeight = 0.35;     // ...and how far above the eye line
+    this.boomSide = 0.55;       // over-the-shoulder offset
+    this._boomNow = 0;
     this.frozen = false;
     this.enabled = false;
 
@@ -342,14 +351,46 @@ export class FirstPersonController {
     const eyeOffset = (this.crouching ? this.crouchHeight : this.height) - 0.12;
     this._eyeY += ((this.collider.start.y - this.radius + eyeOffset) - this._eyeY) * Math.min(1, dt * 18);
 
-    this.camera.position.set(
+    const eye = new THREE.Vector3(
       this.collider.start.x + bobX * 0.4,
       this._eyeY + bobY - this._landDip,
       this.collider.start.z
     );
+
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotateY(this.yaw);
     this.camera.rotateX(this.pitch);
     this.camera.rotateZ(this._lean + bobRoll);
+
+    if (!this.thirdPerson) {
+      this.camera.position.copy(eye);
+      this._boomNow = 0;
+      return;
+    }
+
+    // Pull the camera back along its own view axis, then shorten the boom until
+    // it is clear of geometry — otherwise it sits inside the wall behind you
+    // and you see the inside of the world.
+    const back = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const pivot = eye.clone().addScaledVector(right, this.boomSide);
+    pivot.y += this.boomHeight;
+
+    let want = this.boom;
+    if (this.octree) {
+      const probe = new Capsule(pivot.clone(), pivot.clone(), 0.28);
+      for (let step = want; step > 0.4; step -= 0.35) {
+        probe.start.copy(pivot).addScaledVector(back, step);
+        probe.end.copy(probe.start);
+        if (!this.octree.capsuleIntersect(probe)) { want = step; break; }
+        want = step - 0.35;
+      }
+      want = Math.max(0.4, want);
+    }
+    // Snap in fast when something blocks, ease out slowly when it clears, so
+    // the camera never lurches through a doorway.
+    const rate = want < this._boomNow ? 30 : 6;
+    this._boomNow += (want - this._boomNow) * Math.min(1, dt * rate);
+    this.camera.position.copy(pivot).addScaledVector(back, this._boomNow);
   }
 }

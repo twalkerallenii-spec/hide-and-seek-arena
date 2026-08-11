@@ -20,6 +20,7 @@ import { loadArena, metaIndex, ARENA_LIST } from './arenas/index.js';
 import { Round, PHASE, ROLE } from './game/round.js';
 import { Lobby } from './ui/lobby.js';
 import { Monster } from './game/monster.js';
+import { Avatar, CHARACTERS } from './game/avatar.js';
 import { makeRNG } from './engine/rng.js';
 import { setAssetRenderer, loadManifest } from './engine/assets.js';
 import { NetClient } from './net/client.js';
@@ -100,6 +101,8 @@ class Game {
     // in round mode is the monster rather than the abstract sweep. This has to
     // happen after the Monster exists.
     this.powerups.refs.monster = this.monster;
+    // The hider's own body, seen over their shoulder. The Seeker never needs it.
+    this.avatar = new Avatar(this.world.scene, CHARACTERS[0]);
     this._wireRound();
 
     // Multiplayer is strictly additive: if the server is asleep, unreachable or
@@ -170,6 +173,10 @@ class Game {
   _wireRound() {
     this.round.on('phase', (phase) => {
       if (phase === PHASE.HIDE) {
+        // Roles are known by now, so this is where the camera mode is decided:
+        // the Seeker is the monster and plays first person; hiders play over
+        // the shoulder and get a visible body.
+        this._applyViewMode();
         // Hide phase is the first moment the player controls their character,
         // so this is where the pointer gets captured.
         if (this.state === STATE.PLAY) this.controller.lock();
@@ -317,6 +324,26 @@ class Game {
     document.addEventListener('keyup', (e) => { if (e.code === 'Tab') this._scanning = false; });
 
     window.addEventListener('blur', () => { if (this.state === STATE.PLAY) this.pause(); });
+  }
+
+  /**
+   * First person for the Seeker, third person for everyone else. Solo explore
+   * mode stays first person — there is no monster to embody and no one to see.
+   */
+  async _applyViewMode() {
+    const seeker = this.roundMode && this.round.localIsSeeker;
+    this.controller.thirdPerson = this.roundMode && !seeker;
+    this.controller.octree = this.controller.octree;   // boom needs it; already set
+
+    if (this.controller.thirdPerson) {
+      if (!this.avatar.loaded) await this.avatar.load();
+      this.avatar.setVisible(true);
+      // The monster is somebody else's body now; keep it in the world.
+      this.hud.hint('THIRD PERSON — YOU CAN SEE YOURSELF', 2.5);
+    } else {
+      this.avatar.setVisible(false);
+      if (seeker) this.hud.hint('YOU ARE THE MONSTER — FIRST PERSON', 3);
+    }
   }
 
   /** True while a round-mode overlay owns the screen and needs the cursor. */
@@ -502,6 +529,8 @@ class Game {
     // ---- round mode --------------------------------------------------------
     this.roundMode = save.settings.mode !== 'solo';
     this.spectating = false;
+    this.controller.thirdPerson = false;
+    this.avatar?.setVisible(false);
     this._respawnAt = 0;
     this._secretClaimed = false;
     if (this.roundMode) {
@@ -881,6 +910,14 @@ class Game {
         this.seeker.fear = Math.min(100, Math.max(0,
           this.seeker.fear + (pressure > 0.1 ? pressure * 26 : -9) * dt));
       }
+      // The player's own body, when they can see it.
+      if (this.controller.thirdPerson && this.avatar.loaded) {
+        this.avatar.update(dt, p, c.yaw + Math.PI, {
+          speed: hSpeed, onGround: c.onGround, crouching: c.crouching,
+        });
+        this.avatar.setDead(!this.round.local.alive);
+      }
+
       // Spatial voice: listener at the player's head, each peer at their
       // character, so a voice arrives from where its owner actually is.
       if (this.voice.enabled) {

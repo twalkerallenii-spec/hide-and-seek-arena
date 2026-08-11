@@ -41,6 +41,9 @@ const Y_ROOF = 10.8;        // main hall roof underside
 const Y_CLER = 13.6;        // clerestory head / vault springing
 const Y_CROWN = 16.4;       // barrel vault crown
 
+const Y_L3 = 11.6;          // third floor — the abandoned refit, wings only
+const Y_L3_C = 15.4;        // its ceiling
+const Y_RDECK = 16.4;       // roof deck, level with the atrium vault crown
 const U = 2.4;              // world metres per floor-tile texture repeat
 
 export async function build(ctx) {
@@ -415,6 +418,59 @@ export async function build(ctx) {
   // ===========================================================================
   const railRuns = [];
   const rail = (x1, z1, x2, z2, y) => railRuns.push([x1, z1, x2, z2, y]);
+
+  // ===========================================================================
+  // 6b. THIRD FLOOR AND ROOF
+  //
+  // The wings get two more levels; the atrium void deliberately does NOT, so
+  // you can still see all the way from the roof down to the fountain and the
+  // barrel vault keeps its full 16 m of headroom.
+  //
+  // Level 3 is a refit that was abandoned halfway: bare studwork, plastic
+  // sheeting, no ceiling tiles. The roof is open air above the car park lights.
+  // ===========================================================================
+  const WING_DECKS = [
+    [24, -13, 76, 13],      // east wing
+    [-76, -13, -24, 13],    // west wing
+  ];
+
+  for (const [x0, z0, x1, z1] of WING_DECKS) {
+    // third floor
+    plate(G.shell, x0, z0, x1, z1, Y_L3 - 0.55, 0.55, M.wallCream);
+    tileRect(x0, z0, x1, z1, Y_L3 + 0.002, 3, patUpper);
+    slab(x0, z0, x1, z1, Y_L3, 0.55);
+    // roof deck
+    plate(G.shell, x0, z0, x1, z1, Y_RDECK - 0.6, 0.6, M.wallCream);
+    slab(x0, z0, x1, z1, Y_RDECK, 0.6);
+    // parapets, so nobody walks off the roof
+    rail(x0, z0, x1, z0, Y_RDECK);
+    rail(x0, z1, x1, z1, Y_RDECK);
+    rail(x0, z0, x0, z1, Y_RDECK);
+    rail(x1, z0, x1, z1, Y_RDECK);
+    // level-3 edge onto the atrium void
+    const inner = x0 < 0 ? x1 : x0;
+    rail(inner, z0, inner, z1, Y_L3);
+  }
+
+  // Two stair cores, one per wing, running upper -> L3 -> roof. Each is a
+  // switchback so it fits in 9 m of plan, with a landing collider at each turn.
+  for (const sx of [34, -34]) {
+    const w = 2.6, half = w / 2;
+    // upper -> L3
+    ramp(sx - 4, -9.5, Y_UPP, sx - 4, -4.5, (Y_UPP + Y_L3) / 2, w);
+    slab(sx - 4 - half, -4.9, sx + 4 + half, -4.1, (Y_UPP + Y_L3) / 2, 0.35);
+    ramp(sx + 4, -4.5, (Y_UPP + Y_L3) / 2, sx + 4, -9.5, Y_L3, w);
+    slab(sx + 4 - half, -10.0, sx + 4 + half, -9.2, Y_L3, 0.35);
+    // L3 -> roof
+    ramp(sx + 4, -9.5, Y_L3, sx + 4, -4.5, (Y_L3 + Y_RDECK) / 2, w);
+    slab(sx - 4 - half, -4.9, sx + 4 + half, -4.1, (Y_L3 + Y_RDECK) / 2, 0.35);
+    ramp(sx - 4, -4.5, (Y_L3 + Y_RDECK) / 2, sx - 4, -9.5, Y_RDECK, w);
+    // a hole through each deck for the flight to come up through
+    // (the deck rects above are solid; the stair emerges at their south edge)
+    rail(sx - 8, -10.4, sx + 8, -10.4, Y_L3);
+    rail(sx - 8, -10.4, sx + 8, -10.4, Y_RDECK);
+  }
+
 
   // atrium void edges
   rail(-24, -14, -12, -14, Y_UPP); rail(0, -14, 24, -14, Y_UPP);
