@@ -11,13 +11,17 @@ export const HEALTH_URL = 'https://hide-and-seek-arena-server.onrender.com/healt
 
 /** Let a local dev server override it: ?server=ws://localhost:8137/ws */
 export function resolveServerUrl() {
+  // `location` is not guaranteed — a worker, a test harness or a server-side
+  // import all lack it, and this module gets pulled in by the game shell.
+  const loc = typeof location !== 'undefined' ? location : null;
+  if (!loc) return SERVER_URL;
   try {
-    const q = new URLSearchParams(location.search).get('server');
+    const q = new URLSearchParams(loc.search || '').get('server');
     if (q === 'off') return null;
     if (q) return q;
   } catch { }
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-    return `ws://${location.hostname}:8137/ws`;
+  if (loc.hostname === 'localhost' || loc.hostname === '127.0.0.1') {
+    return `ws://${loc.hostname}:8137/ws`;
   }
   return SERVER_URL;
 }
@@ -27,6 +31,7 @@ export function resolveServerUrl() {
  * Fire and forget — the WebSocket attempt does not wait on it.
  */
 export function wakeServer() {
+  if (typeof fetch !== 'function') return;
   try { fetch(HEALTH_URL, { mode: 'cors', cache: 'no-store' }).catch(() => { }); }
   catch { }
 }

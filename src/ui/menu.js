@@ -373,7 +373,8 @@ export class Menu {
 
     for (const cfg of SETTINGS) {
       const el = $(cfg.id);
-      if (!el) continue;                       // row may not exist in this build
+      if (!el) continue;
+      try {                       // row may not exist in this build
       const lab = cfg.label ? $(cfg.label) : null;
 
       if (cfg.check) {
@@ -400,6 +401,10 @@ export class Menu {
         cfg.apply?.(v);
       };
       el.addEventListener('input', upd);
+      } catch (e) {
+        // A single malformed row must never stop the menu from coming up.
+        console.warn(`settings: "${cfg.key}" failed to bind`, e);
+      }
     }
 
     // GRAPHICS is a <select>, so it stays off the numeric path entirely.
