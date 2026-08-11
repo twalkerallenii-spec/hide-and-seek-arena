@@ -20,6 +20,26 @@ const CSS = `
   letter-spacing:.14em;transform:skewX(var(--skew));text-transform:uppercase}
 .lb-sub{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.3em;color:var(--ink-faint)}
 
+.lb-you{display:grid;justify-items:center;gap:10px;padding:22px 0}
+.lb-youav{width:96px;height:96px;border-radius:22px;display:grid;place-items:center;
+  font-family:var(--font-display);font-size:2rem;color:#0b0d11;transform:skewX(var(--skew));
+  background:linear-gradient(150deg,var(--gold-1),var(--gold-2));
+  box-shadow:0 12px 40px rgba(255,215,0,.25),0 0 0 3px #000 inset}
+.lb-youname{font-family:var(--font-display);font-size:1.3rem;letter-spacing:.14em;
+  transform:skewX(var(--skew))}
+.lb-youtag{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.28em;color:var(--ink-faint)}
+.lb-joinbig{font-family:var(--font-display);font-size:clamp(3rem,11vw,6rem);line-height:1;
+  letter-spacing:.05em;transform:skewX(var(--skew));color:var(--cyan);
+  text-shadow:0 0 60px rgba(70,224,255,.35),0 4px 0 #000}
+.lb-joinlbl{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.34em;color:var(--ink-dim)}
+.lb-roster{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:640px}
+.lb-chip{display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;
+  border:1px solid var(--line);background:rgba(14,17,24,.7);
+  font-family:var(--font-display);font-size:.7rem;letter-spacing:.08em}
+.lb-chip.you{border-color:var(--gold-1);color:var(--gold-1)}
+.lb-chip.bot{opacity:.55}
+.lb-chip i{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.lb-chip.bot i{background:var(--ink-faint)}
 .lb-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px}
 .lb-slot{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;
   border:1px solid var(--line);background:rgba(14,17,24,.7);transition:.25s}
@@ -134,6 +154,17 @@ export class Lobby {
     this.head.append(this.title, this.sub);
 
     this.slots = el('div', 'lb-slots');
+    this.slots.style.display = 'none';        // kept for the full-roster view
+
+    // The lobby the user asked for: your character, a button, and a clock.
+    this.you = el('div', 'lb-you');
+    this.youAv = el('div', 'lb-youav', 'YOU');
+    this.youName = el('div', 'lb-youname', 'OPERATIVE');
+    this.youTag = el('div', 'lb-youtag', 'PRESS START TO OPEN THE ROOM');
+    this.joinBig = el('div', 'lb-joinbig', '');
+    this.joinLbl = el('div', 'lb-joinlbl', '');
+    this.roster = el('div', 'lb-roster');
+    this.you.append(this.youAv, this.youName, this.youTag, this.joinBig, this.joinLbl, this.roster);
 
     this.wheelBox = el('div', 'lb-wheelbox');
     this.reel = el('div', 'lb-reel');
@@ -145,10 +176,10 @@ export class Lobby {
 
     this.foot = el('div', 'lb-foot');
     this.count = el('div', 'lb-count', '0 / 11 READY');
-    this.readyBtn = el('button', 'btn play', '<span>READY</span>');
+    this.readyBtn = el('button', 'btn play', '<span>START</span>');
     this.foot.append(this.count, this.readyBtn);
 
-    this.wrap.append(this.head, this.slots, this.wheelBox, this.reveal, this.foot);
+    this.wrap.append(this.head, this.you, this.slots, this.wheelBox, this.reveal, this.foot);
     this.screen.append(this.wrap);
     document.body.appendChild(this.screen);
 
@@ -168,7 +199,8 @@ export class Lobby {
 
     // --- death overlay ---
     this.dead = el('div', 'lb-dead',
-      '<div><div class="t">CAUGHT</div><div class="s">SPECTATING · THE ROUND CONTINUES</div></div>');
+      '<div><div class="t">CAUGHT</div>' +
+      '<div class="s">YOU HAVE BEEN FOUND · RESPAWNING AT THE START AREA</div></div>');
     document.body.appendChild(this.dead);
   }
 
@@ -176,13 +208,17 @@ export class Lobby {
     this.readyBtn.addEventListener('click', () => {
       const on = this.round.toggleReady();
       audio.ui(on ? 'confirm' : 'back');
-      this.readyBtn.firstChild.textContent = on ? 'READY ✓' : 'READY';
-      this.renderSlots();
+      this.readyBtn.firstChild.textContent = on ? 'CANCEL' : 'START';
+      this.renderYou();
     });
 
     this.round.on('phase', (phase, data) => this.onPhase(phase, data));
-    this.round.on('lobby', () => this.renderSlots());
-    this.round.on('ready', () => this.renderSlots());
+    this.round.on('lobby', () => this.renderYou());
+    this.round.on('ready', () => this.renderYou());
+    this.round.on('join', () => this.renderYou());
+    this.round.on('joinOpen', () => this.renderYou());
+    this.round.on('respawn', () => { this.showDead(false); this.renderHunt(); });
+    this.round.on('secret', (who) => this.pushKill({ name: 'THE PUP', by: who, isLocal: false }));
     this.round.on('caught', (p, entry) => this.pushKill(entry));
     this.round.on('localCaught', () => this.showDead(true));
   }
@@ -200,12 +236,14 @@ export class Lobby {
       this.reveal.style.display = 'none';
       this.slots.style.display = '';
       this.foot.style.display = '';
-      this.readyBtn.firstChild.textContent = 'READY';
+      this.readyBtn.firstChild.textContent = 'START';
       this.feed.innerHTML = '';
-      this.renderSlots();
+      this.you.style.display = '';
+      this.renderYou();
     }
     if (phase === PHASE.WHEEL) {
       this.title.textContent = 'ASSIGNING ROLES';
+      this.you.style.display = 'none';
       this.slots.style.display = 'none';
       this.foot.style.display = 'none';
       this.wheelBox.style.display = '';
@@ -220,6 +258,48 @@ export class Lobby {
         seeker ? 'THE HUNT BEGINS IN' : 'FIND SOMEWHERE TO HIDE';
     }
     if (phase === PHASE.HUNT) this.renderHunt();
+  }
+
+  // --------------------------------------------------------------------- you
+  /**
+   * The lobby is deliberately just you. Other people appear as chips as they
+   * arrive; the eleven-slot grid only shows up once the room actually fills.
+   */
+  renderYou() {
+    const r = this.round;
+    const me = r.local;
+    if (!me) return;
+    this.youAv.textContent = (me.name || 'YOU').slice(0, 2);
+    this.youName.textContent = me.name || 'OPERATIVE';
+
+    const humans = r.humanCount;
+    if (r.joinOpen) {
+      const left = Math.ceil(r.joinLeft);
+      this.joinBig.textContent = String(left);
+      this.joinLbl.textContent = 'SECONDS FOR OTHERS TO JOIN';
+      this.youTag.textContent = humans > 1
+        ? `${humans} PLAYERS IN THE ROOM`
+        : 'WAITING FOR ANYONE ELSE';
+    } else {
+      this.joinBig.textContent = '';
+      this.joinLbl.textContent = '';
+      this.youTag.textContent = 'PRESS START TO OPEN THE ROOM';
+    }
+
+    // Chips for anyone who has actually turned up.
+    this.roster.innerHTML = '';
+    const real = r.participants.filter(p => !p.isAI);
+    for (const p of real) {
+      const c = el('div', 'lb-chip' + (p.isLocal ? ' you' : ''));
+      c.append(el('i'), document.createTextNode(p.name));
+      this.roster.appendChild(c);
+    }
+    if (r.joinOpen && real.length < 11) {
+      const c = el('div', 'lb-chip bot');
+      c.append(el('i'), document.createTextNode(`+${11 - real.length} AI`));
+      this.roster.appendChild(c);
+    }
+    this.count.textContent = `${real.length} REAL · ${11 - real.length} AI`;
   }
 
   // ------------------------------------------------------------------- slots
@@ -339,8 +419,13 @@ export class Lobby {
       this.timer.querySelector('.n').textContent = String(left);
       this.timer.classList.toggle('urgent', left <= 5);
     }
-    if (r.phase === PHASE.LOBBY && r.startCountdown > 0) {
-      this.count.textContent = `STARTING IN ${Math.ceil(r.startCountdown)}`;
+    if (r.phase === PHASE.LOBBY && r.joinOpen) {
+      const left = Math.ceil(r.joinLeft);
+      if (left !== this._lastLeft) {
+        this._lastLeft = left;
+        this.joinBig.textContent = String(left);
+        if (left <= 5 && left > 0) audio.ui('hover');
+      }
     }
   }
 

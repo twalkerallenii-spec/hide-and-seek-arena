@@ -32,8 +32,8 @@ export const HIDE_SECONDS = 30;
  *  stalemate against a hider who found a genuinely good spot still resolves. */
 export const HUNT_SECONDS = 240;
 const WHEEL_SECONDS = 6.5;
-const LOBBY_AUTOSTART = 20;
-const READY_COUNTDOWN = 3;
+/** How long the room stays open for other people once you hit START. */
+export const JOIN_WINDOW = 30;
 
 const BOT_NAMES = [
   'VESSEL', 'HALLOW', 'NINEPIN', 'MOTH', 'CANDLE', 'TALLY', 'GRIN', 'SEVEN',
@@ -145,10 +145,15 @@ export class Round {
       p.ready = p.isLocal ? false : false;
       p.role = null;
       p.alive = true;
+      p.wasCaught = false;
       p.spotId = null;
       p.target = null;
     }
+    this.secretBy = null;
     this.startCountdown = 0;
+    this.joinOpen = false;
+    this.joinTimer = 0;
+    this._lastJoinTick = null;
     this._setPhase(PHASE.LOBBY);
   }
 
@@ -158,8 +163,24 @@ export class Round {
     if (!p || this.phase !== PHASE.LOBBY) return false;
     p.ready = !p.ready;
     this._emit('ready', p);
+    // Hitting START opens the doors: thirty seconds for anyone else to walk in.
+    if (p.ready && !this.joinOpen) {
+      this.joinOpen = true;
+      this.joinTimer = JOIN_WINDOW;
+      this._emit('joinOpen', JOIN_WINDOW);
+    } else if (!p.ready) {
+      this.joinOpen = false;
+      this.joinTimer = 0;
+      this._emit('joinClosed');
+    }
     return p.ready;
   }
+
+  /** Seconds left in the join window, 0 when it is not open. */
+  get joinLeft() { return this.joinOpen ? Math.max(0, this.joinTimer) : 0; }
+
+  /** How many of the eleven slots are real people. */
+  get humanCount() { return this.participants.filter(p => !p.isAI).length; }
 
   /**
    * Decide roles, then hand the UI a spin to present. The outcome is settled
@@ -168,13 +189,25 @@ export class Round {
    */
   _spinWheel() {
     const n = this.participants.length;
+    // Only real people wear the mask. An AI monster is a worse opponent and a
+    // worse story, so the seeker is always drawn from the humans in the room.
+    const humans = this.participants
+      .map((p, i) => ({ p, i }))
+      .filter(x => !x.p.isAI);
+
     let seekerIdx;
-    if (this.roundNumber === 1) {
-      // Deliberately rigged: being hunted teaches the game far better than
-      // hunting does, so nobody's first ever round puts them behind the mask.
+    if (humans.length >= 2) {
+      seekerIdx = humans[Math.floor(this.rng() * humans.length)].i;
+    } else if (this.roundNumber === 1) {
+      // Solo, first ever round: being hunted teaches the game far better than
+      // hunting does, so nobody's first round puts them behind the mask.
       seekerIdx = 1 + Math.floor(this.rng() * (n - 1));
     } else {
-      seekerIdx = Math.floor(this.rng() * n);
+      // Solo after that: alternate, so a single player still sees both sides.
+      seekerIdx = (this.roundNumber % 2 === 0)
+        ? this.participants.findIndex(p => !p.isAI)
+        : 1 + Math.floor(this.rng() * (n - 1));
+      if (seekerIdx < 0) seekerIdx = 0;
     }
     this.participants.forEach((p, i) => {
       p.role = i === seekerIdx ? ROLE.SEEKER : ROLE.HIDER;
@@ -235,8 +268,59 @@ export class Round {
     this.killFeed.push(entry);
     this._emit('caught', p, entry);
     if (p.isLocal) this._emit('localCaught', p);
-    if (!this.aliveHiders.length) this._end('seeker');
+    if (this.allFoundOnce) this._end('seeker');
     return true;
+  }
+
+  /**
+   * Someone arrived after the wheel had already spun. They join as a hider,
+   * alive, at the start area — no waiting out the round in a menu.
+   */
+  addLateJoiner({ id, name, isAI = false, pos = null }) {
+    if (this.participants.some(p => p.id === id)) return null;
+    const p = {
+      id, name, isAI, isLocal: false, ready: true,
+      role: ROLE.HIDER, alive: true,
+      pos: pos ? V(pos.x, pos.y, pos.z) : V(this.spawn.x, this.spawn.y, this.spawn.z),
+      target: null, spotId: null, speed: 3.4, nerve: 0.5,
+      readyAt: 0, lateJoin: true,
+    };
+    this.participants.push(p);
+    this._emit('join', p);
+    return p;
+  }
+
+  /**
+   * Back in after being caught. The round keeps going, so a death is a setback
+   * rather than a spectator sentence — but you are marked as already-found, so
+   * you no longer count toward the seeker's win condition.
+   */
+  respawn(id) {
+    const p = this.participants.find(x => x.id === id);
+    if (!p || p.alive || this.phase !== PHASE.HUNT) return false;
+    p.alive = true;
+    p.wasCaught = true;
+    p.pos.x = this.spawn.x; p.pos.y = this.spawn.y; p.pos.z = this.spawn.z;
+    this._emit('respawn', p);
+    return true;
+  }
+
+  /**
+   * The hiders' escape hatch. Every arena hides exactly one dog; find it and
+   * the round ends in the hiders' favour no matter how many have been caught.
+   */
+  secretFound(byName = 'SOMEONE') {
+    if (this.phase !== PHASE.HUNT) return false;
+    this.secretBy = byName;
+    this._emit('secret', byName);
+    this._end('secret');
+    return true;
+  }
+
+  /** Everyone has been found at least once — the seeker's win. */
+  get allFoundOnce() {
+    const hs = this.hiders;
+    return hs.length > 0 && hs.every(h => !h.alive || h.wasCaught);
   }
 
   _end(winner) {
@@ -268,27 +352,21 @@ export class Round {
   }
 
   _tickLobby(dt) {
-    let changed = false;
-    for (const p of this.participants) {
-      if (p.isAI && !p.ready && this.phaseTime >= p.readyAt) {
-        p.ready = true;
-        changed = true;
-        this._emit('ready', p);
-      }
-    }
-    if (changed) this._emit('lobby', this.participants);
+    if (!this.joinOpen) return;
 
-    const allReady = this.participants.every(p => p.ready);
-    if (allReady) {
-      this.startCountdown = this.startCountdown || READY_COUNTDOWN;
-      this.startCountdown -= dt;
-      if (this.startCountdown <= 0) this._spinWheel();
-    } else {
-      this.startCountdown = 0;
-      // Nobody waits forever for a slot that will never fill.
-      if (this.phaseTime > LOBBY_AUTOSTART && this.local?.ready) {
-        for (const p of this.participants) p.ready = true;
-      }
+    this.joinTimer -= dt;
+    const whole = Math.ceil(this.joinTimer);
+    if (whole !== this._lastJoinTick) {
+      this._lastJoinTick = whole;
+      this._emit('joinTick', Math.max(0, whole));
+    }
+
+    if (this.joinTimer <= 0) {
+      // Doors close. Everything still empty becomes AI, and we spin.
+      for (const p of this.participants) p.ready = true;
+      this.joinOpen = false;
+      this._emit('lobby', this.participants);
+      this._spinWheel();
     }
   }
 
