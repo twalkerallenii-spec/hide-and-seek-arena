@@ -341,40 +341,100 @@ export class Menu {
   // -------------------------------------------------------------- settings
   _buildSettings() {
     const s = save.settings;
-    const bind = (id, key, transform = (v) => v, label = null, apply = null) => {
-      const el = $(id);
-      if (!el) return;
-      const isCheck = el.type === 'checkbox';
-      if (isCheck) el.checked = !!s[key];
-      else el.value = key === 'sensitivity' ? Math.round(s[key] * 100) : s[key];
+
+    /**
+     * Each setting declares its own conversions explicitly.
+     *
+     * The previous version wrote the stored value straight into the slider and
+     * sniffed magnitudes to decide how to format the label. That silently broke
+     * the volumes: `volMaster` is stored as 0.8 but its slider runs 0-100, so it
+     * clamped to 1 and then persisted 0.01 back over the saved setting — the
+     * game muted itself on first load. Never infer a unit from a number.
+     */
+    const SETTINGS = [
+      {
+        id: 'setSens', key: 'sensitivity', label: 'setSensVal',
+        toUi: v => Math.round(v * 100), fromUi: v => v / 100,
+        fmt: v => v.toFixed(2), apply: v => this.game.setSensitivity?.(v),
+      },
+      {
+        id: 'setFov', key: 'fov', label: 'setFovVal',
+        toUi: v => Math.round(v), fromUi: v => v,
+        fmt: v => String(Math.round(v)), apply: v => this.game.setFov?.(v),
+      },
+      {
+        id: 'setVolMaster', key: 'volMaster', label: 'setVolMasterVal',
+        toUi: v => Math.round(v * 100), fromUi: v => v / 100,
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('master', v),
+      },
+      {
+        id: 'setVolMusic', key: 'volMusic', label: 'setVolMusicVal',
+        toUi: v => Math.round(v * 100), fromUi: v => v / 100,
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('music', v),
+      },
+      {
+        id: 'setVolSfx', key: 'volSfx', label: 'setVolSfxVal',
+        toUi: v => Math.round(v * 100), fromUi: v => v / 100,
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('sfx', v),
+      },
+      { id: 'setInvert', key: 'invertY', bool: true, apply: v => this.game.setInvertY?.(v) },
+      { id: 'setGrain', key: 'grain', bool: true, apply: v => this.game.setGrain?.(v) },
+    ];
+
+    for (const def of SETTINGS) {
+      const el = $(def.id);
+      if (!el) continue;                       // row may not exist in this build
+      const stored = s[def.key];
+
+      if (def.bool) {
+        el.checked = !!stored;
+        const upd = () => { save.set(def.key, el.checked); def.apply?.(el.checked); };
+        el.addEventListener('change', upd);
+        def.apply?.(!!stored);
+        continue;
+      }
+
+      // Clamp a corrupt save into range rather than letting the browser do it
+      // silently and then writing the clamped value back.
+      const lo = Number(el.min), hi = Number(el.max);
+      let ui = def.toUi(Number.isFinite(stored) ? stored : def.fromUi((lo + hi) / 2));
+      ui = Math.max(lo, Math.min(hi, ui));
+      el.value = String(ui);
+
+      const paint = (model) => {
+        const lbl = def.label && $(def.label);
+        if (lbl) lbl.textContent = def.fmt(model);
+      };
       const upd = () => {
-        const raw = isCheck ? el.checked : Number(el.value);
-        const val = transform(raw);
-        save.set(key, val);
-        if (label) $(label).textContent = typeof val === 'number' && val < 10
-          ? val.toFixed(2) : Math.round(raw);
-        apply?.(val);
+        const model = def.fromUi(Number(el.value));
+        save.set(def.key, model);
+        paint(model);
+        def.apply?.(model);
       };
       el.addEventListener('input', upd);
       el.addEventListener('change', upd);
-      upd();
-    };
 
-    // Quality is a <select>: bind() coerces with Number(), which would store NaN.
-    $('setQuality').value = s.quality;
-    $('setQuality').addEventListener('change', (e) => {
-      save.set('quality', e.target.value);
-      this.game.setQuality?.(e.target.value);
-      audio.ui('click');
-    });
+      // Apply on load WITHOUT writing back, unless the stored value was invalid.
+      const model = def.fromUi(ui);
+      paint(model);
+      def.apply?.(model);
+      if (!Number.isFinite(stored) || Math.abs(model - stored) > 1e-9) save.set(def.key, model);
+    }
 
-    bind('setSens', 'sensitivity', v => v / 100, 'setSensVal', v => this.game.setSensitivity?.(v));
-    bind('setFov', 'fov', v => v, 'setFovVal', v => this.game.setFov?.(v));
-    bind('setVolMaster', 'volMaster', v => v / 100, 'setVolMasterVal', v => audio.setVolume('master', v));
-    bind('setVolMusic', 'volMusic', v => v / 100, 'setVolMusicVal', v => audio.setVolume('music', v));
-    bind('setInvert', 'invertY', v => v, null, v => this.game.setInvertY?.(v));
-    bind('setGrain', 'grain', v => v, null, v => this.game.setGrain?.(v));
+    // Quality is a <select>, deliberately outside the numeric path above.
+    const q = $('setQuality');
+    if (q) {
+      const valid = [...q.options].map(o => o.value);
+      q.value = valid.includes(s.quality) ? s.quality : 'high';
+      if (q.value !== s.quality) save.set('quality', q.value);
+      q.addEventListener('change', (e) => {
+        save.set('quality', e.target.value);
+        this.game.setQuality?.(e.target.value);
+        audio.ui('click');
+      });
+    }
   }
+
 
   // -------------------------------------------------------------- loading
   showLoading(meta) {

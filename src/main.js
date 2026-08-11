@@ -85,6 +85,7 @@ class Game {
       scene: this.world.scene,
       world: this.world,
       pickups: this.pickups,
+      monster: this.monster,          // ghost/timefreeze/decoy act on this too
       baseFearRate: 1,
     });
     // Round mode: eleven slots, a wheel, thirty seconds, then the monster.
@@ -94,6 +95,7 @@ class Game {
     this.lobby = new Lobby(this.round, this);
     this.monster = new Monster(this.world.scene);
     this._wireRound();
+
 
     this._wireCallbacks();
     this._wireInput();
@@ -155,6 +157,9 @@ class Game {
   _wireRound() {
     this.round.on('phase', (phase) => {
       if (phase === PHASE.HIDE) {
+        // Hide phase is the first moment the player controls their character,
+        // so this is where the pointer gets captured.
+        if (this.state === STATE.PLAY) this.controller.lock();
         // The monster is held at its spawn for the full thirty seconds. If the
         // player drew SEEKER they are held too — the cage overlay is the tell.
         this.monster.cage(true);
@@ -172,9 +177,19 @@ class Game {
     });
 
     this.round.on('localCaught', () => {
-      this.spectating = true;
-      this.controller.noclip = true;
+      // Being found is a setback, not an ejection: a short blackout, then you
+      // are back at the start area and in the round again.
       this.renderer.setDamage(1);
+      this.controller.frozen = true;
+      this._respawnAt = this.runTime + 3.0;
+    });
+    this.round.on('respawn', (p) => {
+      if (!p.isLocal) return;
+      const sp = this.currentMeta?.spawn ?? [0, 1, 0];
+      this.controller.teleport(sp[0], sp[1], sp[2]);
+      this.controller.frozen = false;
+      this.renderer.setDamage(0);
+      this.hud.toast('BACK IN', 'gold');
     });
 
     this.monster.onCatch = () => {
@@ -196,9 +211,11 @@ class Game {
     window.addEventListener('keydown', () => this._initAudio(), { once: true });
 
     document.addEventListener('pointerlockchange', () => {
-      if (this.state === STATE.PLAY && document.pointerLockElement !== canvas) {
-        this.pause();
-      }
+      if (this.state !== STATE.PLAY || document.pointerLockElement === canvas) return;
+      // Losing the pointer while an overlay owns the screen is expected, not a
+      // pause: the lobby, the wheel and the death card all need a live cursor.
+      if (this.roundMode && this._overlayPhase()) return;
+      this.pause();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -252,6 +269,12 @@ class Game {
     document.addEventListener('keyup', (e) => { if (e.code === 'Tab') this._scanning = false; });
 
     window.addEventListener('blur', () => { if (this.state === STATE.PLAY) this.pause(); });
+  }
+
+  /** True while a round-mode overlay owns the screen and needs the cursor. */
+  _overlayPhase() {
+    const p = this.round?.phase;
+    return p === PHASE.LOBBY || p === PHASE.WHEEL || p === PHASE.OVER;
   }
 
   _initAudio() {
@@ -425,6 +448,8 @@ class Game {
     // ---- round mode --------------------------------------------------------
     this.roundMode = save.settings.mode !== 'solo';
     this.spectating = false;
+    this._respawnAt = 0;
+    this._secretClaimed = false;
     if (this.roundMode) {
       this.round.rng = makeRNG(`${id}-${Date.now()}`);
       this.round.configure({
@@ -467,7 +492,10 @@ class Game {
     this.hud.show(true);
     this.state = STATE.PLAY;
     this.controller.enabled = true;
-    this.controller.lock();
+    // Only grab the pointer when the player is actually in the world. In hunt
+    // mode the round starts in LOBBY with an overlay up, and a locked pointer
+    // would make its START button unclickable.
+    if (!this.roundMode || this.round.phase !== PHASE.LOBBY) this.controller.lock();
     this.hud.hint('CLICK TO LOOK · WASD TO MOVE · F FOR LIGHT', 4);
     // State the objective once the control hint has cleared.
     setTimeout(() => {
@@ -769,6 +797,7 @@ class Game {
         crouching: c.crouching,
         sprinting: c.sprinting,
         moving: hSpeed > 0.6,
+        silenced: !!c.silenced,
         lightOn: this.flashlight.on && this.flashlight.spot.intensity > 0.5,
         canCatch: !this.spectating,
       });
@@ -786,8 +815,15 @@ class Game {
         this.seeker.fear = Math.min(100, Math.max(0,
           this.seeker.fear + (pressure > 0.1 ? pressure * 26 : -9) * dt));
       }
-      const dmg = Math.max(0, 1 - (this.runTime - (this._lastHit ?? -99)) / 1.2);
-      this.renderer.setDamage(this.spectating ? 0.45 : dmg * 0.8);
+      if (this._respawnAt && this.runTime >= this._respawnAt) {
+        this._respawnAt = 0;
+        this.round.respawn('local');
+      }
+      // The dog is the hiders' escape hatch: find it and the round is theirs.
+      if (this.foundPupThisRun && !this._secretClaimed) {
+        this._secretClaimed = true;
+        this.round.secretFound(this.round.local.name);
+      }
       return;
     }
 

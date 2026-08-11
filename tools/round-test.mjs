@@ -86,21 +86,47 @@ check('hiders claimed distinct spots', (() => {
 check('kill feed populated', kills.length > 0, `${kills.length} caught`);
 console.log(C.d('    ' + kills.slice(0, 4).join(' | ')));
 
-console.log(C.b('\nlater rounds — the player can draw SEEKER'));
-let sawSeeker = 0, sawHider = 0;
-for (let i = 0; i < 40; i++) {
-  const r = new Round(makeRNG('s' + i));
+console.log(C.b('\nseeker selection — only real people wear the mask'));
+
+function spinOnly(seed, roundNo, extraHumans = 0) {
+  const r = new Round(makeRNG(seed));
   r.configure({ arenaId: 't', hidingSpots: spots, bounds: 100, spawn: [0, 0, 0] });
-  r.roundNumber = 1;
+  // Promote some bots to "humans" to simulate a populated room.
+  for (let i = 1; i <= extraHumans; i++) r.participants[i].isAI = false;
+  r.roundNumber = roundNo;
   r.start();
   r.toggleReady();
   let tt = 0;
-  while (tt < 40 && r.phase === PHASE.LOBBY) { r.update(1 / 30); tt += 1 / 30; }
-  while (tt < 60 && r.phase === PHASE.WHEEL) { r.update(1 / 30); tt += 1 / 30; }
-  if (r.local.role === ROLE.SEEKER) sawSeeker++; else sawHider++;
+  while (tt < 60 && r.phase === PHASE.LOBBY) { r.update(1 / 30); tt += 1 / 30; }
+  return r;
 }
-check('player draws seeker sometimes', sawSeeker > 0, `${sawSeeker}/40 seeker, ${sawHider}/40 hider`);
-check('roughly 1-in-11', sawSeeker >= 1 && sawSeeker <= 12, `${(sawSeeker / 40 * 100).toFixed(0)}%`);
+
+// --- populated room: the seeker must never be a bot -------------------------
+let botSeeker = 0, humanSeeker = 0;
+for (let i = 0; i < 40; i++) {
+  const r = spinOnly('pop' + i, 3, 4);      // 5 humans, 6 bots
+  const s = r.seeker;
+  if (s.isAI) botSeeker++; else humanSeeker++;
+}
+check('with 5 humans, seeker is ALWAYS human', botSeeker === 0,
+  `${humanSeeker} human / ${botSeeker} bot out of 40`);
+
+// --- solo: alternates so one player still sees both sides -------------------
+let soloSeeker = 0, soloHider = 0;
+for (let i = 2; i <= 21; i++) {
+  const r = spinOnly('solo' + i, i - 1, 0);
+  if (r.local.role === ROLE.SEEKER) soloSeeker++; else soloHider++;
+}
+check('solo play sees both roles', soloSeeker > 0 && soloHider > 0,
+  `${soloSeeker} seeker / ${soloHider} hider over 20 rounds`);
+
+// --- and the very first round is still rigged to hider ----------------------
+let firstHider = 0;
+for (let i = 0; i < 15; i++) {
+  const r = spinOnly('first' + i, 0, 0);
+  if (r.local.role === ROLE.HIDER) firstHider++;
+}
+check('first ever round is always HIDER', firstHider === 15, `${firstHider}/15`);
 
 console.log(C.b('\nauthoritative driving (server path)'));
 const client = new Round(makeRNG('client'));

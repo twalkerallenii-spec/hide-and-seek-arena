@@ -24,6 +24,17 @@ export class PowerupSystem {
     for (const id of [...this.active.keys()]) this._end(id);
     this.active.clear();
     this._removeDecoy();
+    // A grade snapshot belongs to the arena it was taken in. Loading a new
+    // arena builds a fresh grade pass, so a stale snapshot must never be
+    // replayed into it.
+    this._gradeBefore = null;
+    if (this._nvLight) { this._nvLight.removeFromParent(); this._nvLight = null; }
+    this.doubleJumpAvailable = false;
+    this._airJumpUsed = false;
+    const { seeker, controller, monster } = this.refs;
+    if (seeker) { seeker.ghosted = false; seeker.paused = false; seeker.decoy = null; }
+    if (monster) { monster.ghosted = false; monster.paused = false; monster.decoy = null; }
+    if (controller) controller.silenced = false;
     this.onChange?.();
   }
 
@@ -49,7 +60,7 @@ export class PowerupSystem {
 
   _begin(id) {
     const def = POWERUPS[id];
-    const { controller, seeker, world, pickups } = this.refs;
+    const { controller, seeker, world, pickups, monster } = this.refs;
     audio.ui('confirm');
 
     switch (id) {
@@ -57,8 +68,13 @@ export class PowerupSystem {
         const dir = new THREE.Vector3();
         controller.camera.getWorldDirection(dir);
         dir.y = 0; dir.normalize();
-        controller.velocity.addScaledVector(dir, 16);
-        controller.velocity.y = Math.max(controller.velocity.y, 2.2);
+        // Set rather than add, and lift hard enough to actually break ground
+        // contact — at 2.2 m/s the capsule stayed grounded for two or three
+        // frames and exp(-11*dt) friction ate most of the impulse.
+        controller.velocity.x = dir.x * 18;
+        controller.velocity.z = dir.z * 18;
+        controller.velocity.y = Math.max(controller.velocity.y, 4.0);
+        controller.onGround = false;
         audio.play({ noise: true, dur: 0.3, gain: 0.14, filter: 3000, filterEnd: 400, q: 2 });
         break;
       }
@@ -71,9 +87,20 @@ export class PowerupSystem {
         this._dropDecoy();
         break;
       }
-      case 'ghost': seeker.ghosted = true; break;
-      case 'silence': seeker.fearRate *= 0.5; controller.silenced = true; break;
-      case 'timefreeze': seeker.paused = true; break;
+      // Each of these has to hit BOTH antagonists: the abstract sweep used in
+      // solo mode, and the monster that actually hunts you in round mode.
+      case 'ghost':
+        seeker.ghosted = true;
+        if (monster) monster.ghosted = true;
+        break;
+      case 'silence':
+        seeker.fearRate *= 0.5;
+        controller.silenced = true;
+        break;
+      case 'timefreeze':
+        seeker.paused = true;
+        if (monster) monster.paused = true;
+        break;
       case 'nightvision': this._enableNightVision(true); break;
       case 'jumpjet': this.doubleJumpAvailable = true; break;
     }
@@ -85,11 +112,20 @@ export class PowerupSystem {
   }
 
   _end(id) {
-    const { seeker, controller } = this.refs;
+    const { seeker, controller, monster } = this.refs;
     switch (id) {
-      case 'ghost': seeker.ghosted = false; break;
-      case 'silence': seeker.fearRate = this.refs.baseFearRate ?? 1; controller.silenced = false; break;
-      case 'timefreeze': seeker.paused = false; break;
+      case 'ghost':
+        seeker.ghosted = false;
+        if (monster) monster.ghosted = false;
+        break;
+      case 'silence':
+        seeker.fearRate = this.refs.baseFearRate ?? 1;
+        controller.silenced = false;
+        break;
+      case 'timefreeze':
+        seeker.paused = false;
+        if (monster) monster.paused = false;
+        break;
       case 'nightvision': this._enableNightVision(false); break;
       case 'jumpjet': this.doubleJumpAvailable = false; break;
       case 'decoy': this._removeDecoy(); break;
@@ -107,7 +143,9 @@ export class PowerupSystem {
       }
       // Snapshot whatever grade the arena chose so we can put it back exactly,
       // rather than resetting to a generic default and flattening the look.
-      this._gradeBefore = renderer.getGrade();
+      // Guard against a double-apply overwriting the saved grade with the
+      // night-vision grade itself, which would make it permanent.
+      if (!this._gradeBefore) this._gradeBefore = renderer.getGrade();
       renderer.setGrade({ exposure: 1.6, saturation: 0.35, gain: [0.55, 1.25, 0.7], lift: [0.02, 0.06, 0.02] });
     } else {
       if (this._nvLight) { scene.remove(this._nvLight); this._nvLight = null; }
@@ -130,16 +168,21 @@ export class PowerupSystem {
     m.add(l);
     scene.add(m);
     this._decoyMesh = m;
+    this._decoyLight = l;
     seeker.dropDecoy(m.position);
+    if (this.refs.monster) this.refs.monster.decoy = m.position.clone();
   }
 
   _removeDecoy() {
     if (this._decoyMesh) {
       this._decoyMesh.removeFromParent();
       this._decoyMesh.geometry.dispose();
+      this._decoyMesh.material.dispose();
+      if (this._decoyLight) { this._decoyLight.dispose?.(); this._decoyLight = null; }
       this._decoyMesh = null;
     }
     if (this.refs.seeker) this.refs.seeker.decoy = null;
+    if (this.refs.monster) this.refs.monster.decoy = null;
   }
 
   update(dt) {

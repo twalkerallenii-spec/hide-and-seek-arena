@@ -13,8 +13,25 @@ import { monster as loadMonsterFBX, instance, normaliseHeight } from '../engine/
 import { audio } from '../engine/audio.js';
 
 const GRAVITY = 26;
-const HEIGHT = 2.4;
-const RADIUS = 0.45;
+
+// Sizing is measured, not guessed. The model is a quadruped: raw bind bounds
+// 460 x 427 x 399, so it is WIDER than it is tall, and pose height swings a lot
+// per clip — Walk_Close sits at 0.87x idle (the walk is a crouch), Eat/Spit rear
+// up to 1.25x.
+//
+// The binding constraint across the twelve arenas is the Backrooms warren at a
+// 2.90 m ceiling, with some lintelled doorways down at 2.20 m clear. A 3.25 m
+// idle height puts the walking silhouette at 2.83 m — under that ceiling — while
+// the rear-up during a kill peaks at ~4.06 m, which only ever happens in the
+// open. It reads as enormous next to a 1.72 m player without clipping interiors.
+const HEIGHT = 3.25;
+
+/** The collider is deliberately NOT the visual height. A 3.25 m capsule in a
+ *  2.90 m room never registers as grounded and jitters or sinks, so the physical
+ *  body is capped below the tightest ceiling and the visual overhangs it. */
+const COLLIDER_HEIGHT = 2.70;
+/** From the torso, not the 3.9 m leg span — it still has to fit a 1.0 m door. */
+const RADIUS = 0.44;
 
 /** Clip names exactly as authored in the FBX. */
 const CLIP = {
@@ -47,7 +64,7 @@ export class Monster {
 
     this.collider = new Capsule(
       new THREE.Vector3(0, RADIUS, 0),
-      new THREE.Vector3(0, HEIGHT - RADIUS, 0),
+      new THREE.Vector3(0, COLLIDER_HEIGHT - RADIUS, 0),
       RADIUS
     );
     this.velocity = new THREE.Vector3();
@@ -69,6 +86,12 @@ export class Monster {
     this.attackTimer = 0;
     this.onCatch = null;
     this.onRoar = null;
+    this.onFootfall = null;   // (intensity 0..1) — camera shake hook
+
+    // Driven by the power-up system; see src/game/powerups.js.
+    this.paused = false;      // STILLNESS
+    this.ghosted = false;     // GHOST
+    this.decoy = null;        // DECOY beacon position, or null
 
     this._senseTimer = 0;
     this._stuckTimer = 0;
@@ -130,15 +153,18 @@ export class Monster {
     this.octree = octree;
     this.hidingSpots = hidingSpots;
     this.bounds = bounds;
-    this.speedPatrol = 2.2 + difficulty * 0.18;
-    this.speedHunt = 4.2 + difficulty * 0.42;
+    // Slower to turn and slower to start than a human, but longer-legged: it
+    // loses ground in corners and takes it back down a corridor.
+    this.speedPatrol = 2.0 + difficulty * 0.16;
+    this.speedHunt = 4.0 + difficulty * 0.40;
+    this.turnRate = 2.1;
     this.sightRange = 24 + difficulty * 4;
     this.hearRange = 11 + difficulty * 2.2;
   }
 
   spawn(x, y, z) {
     this.collider.start.set(x, y + RADIUS, z);
-    this.collider.end.set(x, y + HEIGHT - RADIUS, z);
+    this.collider.end.set(x, y + COLLIDER_HEIGHT - RADIUS, z);
     this.velocity.set(0, 0, 0);
     this.waypoint = null;
     this.lastKnown = null;
@@ -174,7 +200,7 @@ export class Monster {
 
   _canSee(targetPos, opts) {
     const eye = this.position;
-    eye.y += HEIGHT * 0.8;
+    eye.y += COLLIDER_HEIGHT * 0.8;
     const to = targetPos.clone();
     to.y += 1.2;
     const d = eye.distanceTo(to);
@@ -191,6 +217,7 @@ export class Monster {
 
   _canHear(targetPos, opts = {}) {
     let r = this.hearRange;
+    if (opts.silenced) r *= 0.15;
     if (opts.sprinting) r *= 1.9;
     else if (opts.crouching) r *= 0.45;
     else if (!opts.moving) r *= 0.25;
@@ -246,7 +273,8 @@ export class Monster {
     let delta = targetHeading - this.heading;
     while (delta > Math.PI) delta -= Math.PI * 2;
     while (delta < -Math.PI) delta += Math.PI * 2;
-    this.heading += Math.max(-3.4 * dt, Math.min(3.4 * dt, delta));
+    const tr = (this.turnRate ?? 2.1) * dt;
+    this.heading += Math.max(-tr, Math.min(tr, delta));
 
     const fwd = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
     this.velocity.x = fwd.x * speed;
@@ -257,7 +285,7 @@ export class Monster {
   _blocked(dir, reach) {
     const from = this.position;
     this._probe.start.set(from.x + dir.x * reach, from.y + RADIUS + 0.3, from.z + dir.z * reach);
-    this._probe.end.set(from.x + dir.x * reach, from.y + HEIGHT - RADIUS, from.z + dir.z * reach);
+    this._probe.end.set(from.x + dir.x * reach, from.y + COLLIDER_HEIGHT - RADIUS, from.z + dir.z * reach);
     this._probe.radius = RADIUS * 0.85;
     return !!this.octree?.capsuleIntersect(this._probe);
   }
@@ -282,14 +310,28 @@ export class Monster {
     dt = Math.min(dt, 1 / 20);
     const { target, crouching, sprinting, moving, lightOn, canCatch = true } = ctxIn;
 
+    // STILLNESS freezes it mid-stride; GHOST makes it unable to perceive you.
+    if (this.paused) {
+      this.mixer.update(0);
+      this.root.position.copy(this.position);
+      return;
+    }
+    const perceivable = target && !this.ghosted;
+    // DECOY: it prefers the beacon over the real thing while one is out.
+    const aim = this.decoy || (perceivable ? target : null);
+
     if (this.state !== MSTATE.CAGED) {
       this._senseTimer -= dt;
-      if (this._senseTimer <= 0 && target) {
+      if (this._senseTimer <= 0 && aim) {
         this._senseTimer = 0.12;                 // ~8 Hz; raycasts are not cheap
-        const seen = this._canSee(target, ctxIn);
-        const heard = !seen && this._canHear(target, { crouching, sprinting, moving, lightOn });
+        const seen = this._canSee(aim, ctxIn);
+        const heard = !seen && this._canHear(aim, {
+          crouching, sprinting, moving, lightOn,
+          // SILENCE removes the noise you make; it cannot hide your light.
+          silenced: !!ctxIn.silenced,
+        });
         if (seen || heard) {
-          this.lastKnown = target.clone();
+          this.lastKnown = aim.clone();
           if (this.state !== MSTATE.ATTACK) {
             if (this.state !== MSTATE.HUNT) this._roar();
             this.state = MSTATE.HUNT;
@@ -300,7 +342,7 @@ export class Monster {
           this.searchTimer = 7;
         }
       }
-      this._think(dt, target, canCatch);
+      this._think(dt, aim, canCatch && perceivable && !this.decoy);
     }
 
     // --- integrate ---------------------------------------------------------
@@ -334,7 +376,7 @@ export class Monster {
     const hunting = this.state === MSTATE.HUNT || this.state === MSTATE.ATTACK;
     this.light.intensity += ((hunting ? 6 : 1.6) - this.light.intensity) * Math.min(1, dt * 3);
     this.light.color.setHex(hunting ? 0xff2200 : 0x7a1a08);
-    this.light.position.set(0, HEIGHT * 0.7, 0);
+    this.light.position.set(0, HEIGHT * 0.55, 0);
   }
 
   _think(dt, target, canCatch) {
@@ -407,18 +449,34 @@ export class Monster {
     this.current = next;
   }
 
-  /** Match the 0.63 s walk cycle to real ground speed so the feet don't skate. */
+  /**
+   * Match the 0.63 s walk cycle to ground speed.
+   *
+   * The clip's actual foot swing is only ~0.56 m of stride per cycle at this
+   * body size — far short of what a 5.4 m/s hunt needs. No timeScale fully
+   * fixes that, so this deliberately over-cranks the cadence rather than
+   * letting the feet glide: a fast, scrabbling gait reads as a charging animal,
+   * where a slow one reads as a bug. The cap keeps it from becoming a blur.
+   */
   _setLocomotion(speed, hunting) {
     const clip = hunting ? CLIP.hunt : CLIP.walk;
-    const cycleDistance = 2.2;                       // metres covered per loop
-    const scale = Math.max(0.35, Math.min(2.4, (speed * 0.63) / cycleDistance));
+    const strideMetres = 0.56 * (HEIGHT / 3.25);
+    const scale = Math.max(0.5, Math.min(3.2, (speed * 0.63) / strideMetres));
     this._play(clip, 0.22, scale);
+    this._cadence = scale;
+  }
+
+  /** Reported for tuning: how far it moves per animation cycle. */
+  strideReport(speed) {
+    const strideMetres = 0.56 * (HEIGHT / 3.25);
+    const scale = Math.max(0.5, Math.min(3.2, (speed * 0.63) / strideMetres));
+    return { speed, strideMetres, timeScale: scale, metresPerCycle: speed * (0.63 / scale) };
   }
 
   // ------------------------------------------------------------------- audio
   _roar() {
-    audio.play({ type: 'sawtooth', freq: 90, freqEnd: 220, dur: 0.9, gain: 0.2, filter: 900, q: 4 });
-    audio.play({ type: 'square', freq: 46, dur: 1.2, gain: 0.14 });
+    audio.play({ type: 'sawtooth', freq: 62, freqEnd: 168, dur: 1.15, gain: 0.22, filter: 720, q: 4 });
+    audio.play({ type: 'square', freq: 33, dur: 1.5, gain: 0.16 });
     this.onRoar?.();
   }
 
@@ -432,7 +490,7 @@ export class Monster {
     if (this._growlTimer <= 0) {
       this._growlTimer = 2.2 + (1 - near) * 5;
       audio.play({
-        type: 'sawtooth', freq: 62 + near * 28, freqEnd: 44,
+        type: 'sawtooth', freq: 44 + near * 22, freqEnd: 30,
         dur: 1.1, gain: 0.03 + near * 0.11, filter: 420 + near * 500, q: 3,
       });
     }
@@ -442,10 +500,13 @@ export class Monster {
       this._stepTimer -= dt * hSpeed;
       if (this._stepTimer <= 0) {
         this._stepTimer = 1.6;
+        // Deeper and heavier than a person's footstep, and it shakes the room.
         audio.play({
-          noise: true, dur: 0.16, gain: 0.03 + near * 0.13,
-          filter: 700, filterEnd: 180, q: 1.4,
+          noise: true, dur: 0.22, gain: 0.04 + near * 0.16,
+          filter: 480, filterEnd: 110, q: 1.6,
         });
+        audio.play({ type: 'sine', freq: 44, freqEnd: 28, dur: 0.26, gain: 0.03 + near * 0.12 });
+        this.onFootfall?.(near);
       }
     }
   }
