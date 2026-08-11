@@ -138,6 +138,7 @@ class Game {
     this.pickups.onCollect = (item) => {
       if (item.kind === 'coin') {
         this.runCoins++;
+        if (this.controller.thirdPerson) this.avatar?.pickup();
         this.hud.coins(this.pickups.collectedCoins, this.pickups.totalCoins);
       } else if (item.kind === 'battery') {
         this.flashlight.recharge(0.5);
@@ -201,6 +202,7 @@ class Game {
       // are back at the start area and in the round again.
       this.renderer.setDamage(1);
       this.controller.frozen = true;
+      this.avatar?.hit();
       this._respawnAt = this.runTime + 3.0;
     });
     this.round.on('respawn', (p) => {
@@ -209,6 +211,7 @@ class Game {
       this.controller.teleport(sp[0], sp[1], sp[2]);
       this.controller.frozen = false;
       this.renderer.setDamage(0);
+      this.avatar?.respawn();
       this.hud.toast('BACK IN', 'gold');
     });
 
@@ -912,8 +915,16 @@ class Game {
       }
       // The player's own body, when they can see it.
       if (this.controller.thirdPerson && this.avatar.loaded) {
+        // Which way the body is travelling relative to its facing, so backing
+        // off plays a reverse walk and sidestepping plays a strafe.
+        const fwd = new THREE.Vector3(-Math.sin(c.yaw), 0, -Math.cos(c.yaw));
+        const rgt = new THREE.Vector3(fwd.z, 0, -fwd.x);
+        const vel = new THREE.Vector3(c.velocity.x, 0, c.velocity.z);
+        const along = hSpeed > 0.1 ? vel.dot(fwd) / hSpeed : 0;
+        const side = hSpeed > 0.1 ? vel.dot(rgt) / hSpeed : 0;
         this.avatar.update(dt, p, c.yaw + Math.PI, {
           speed: hSpeed, onGround: c.onGround, crouching: c.crouching,
+          reversing: along < -0.5, strafe: side,
         });
         this.avatar.setDead(!this.round.local.alive);
       }

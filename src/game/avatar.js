@@ -17,10 +17,18 @@ import { character, animSet, instance, normaliseHeight } from '../engine/assets.
 const CLIP = {
   idle: 'Idle_A',
   walk: 'Walking_A',
+  walkBack: 'Walking_Backwards',
   run: 'Running_A',
+  strafeL: 'Running_Strafe_Left',
+  strafeR: 'Running_Strafe_Right',
+  crouch: 'Crouching',
+  sneak: 'Sneaking',
   jump: 'Jump_Idle',
   land: 'Jump_Land',
   death: 'Death_A',
+  hit: 'Hit_A',
+  spawn: 'Spawn_Ground',
+  pickup: 'PickUp',
 };
 
 /** The roster, in the order slots are handed out. */
@@ -33,11 +41,18 @@ export const CHARACTERS = [
 let clipCache = null;
 async function loadClips() {
   if (clipCache) return clipCache;
-  const [basic, general] = await Promise.all([
+  // MovementAdvanced carries crouch, sneak and the strafes. It shipped in the
+  // asset pack and was sitting unloaded, which is why crouch was being faked.
+  const [basic, general, advanced] = await Promise.all([
     animSet('Rig_Medium_MovementBasic'),
     animSet('Rig_Medium_General'),
+    animSet('Rig_Medium_MovementAdvanced'),
   ]);
-  const all = [...(basic?.animations || []), ...(general?.animations || [])];
+  const all = [
+    ...(basic?.animations || []),
+    ...(general?.animations || []),
+    ...(advanced?.animations || []),
+  ];
   clipCache = new Map(all.map(c => [c.name, c]));
   return clipCache;
 }
@@ -61,6 +76,7 @@ export class Avatar {
     this._yaw = 0;
     this._speed = 0;
     this.dead = false;
+    this._oneShot = 0;
   }
 
   async load() {
@@ -103,6 +119,22 @@ export class Avatar {
     this.current = next;
   }
 
+  /** Play a clip that takes the body over briefly, then hand control back. */
+  oneShot(name, seconds) {
+    const clip = CLIP[name] || name;
+    const a = this.actions[clip];
+    if (!a) return;
+    this._play(clip, 0.1);
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = true;
+    a.reset().play();
+    this._oneShot = seconds ?? 1.0;
+  }
+
+  respawn() { this.dead = false; this.oneShot('spawn', 1.2); }
+  pickup() { this.oneShot('pickup', 0.9); }
+  hit() { this.oneShot('hit', 0.6); }
+
   setDead(on) {
     if (on === this.dead) return;
     this.dead = on;
@@ -130,25 +162,38 @@ export class Avatar {
     const speed = state.speed ?? 0;
     this._speed += (speed - this._speed) * Math.min(1, dt * 10);
 
+    // A one-shot (respawn, pickup, being hit) owns the body until it finishes.
+    if (this._oneShot > 0) {
+      this._oneShot -= dt;
+      this.mixer.update(dt);
+      return;
+    }
+
     if (!this.dead) {
+      const moving = this._speed > 0.35;
       if (state.onGround === false) {
         this._play(CLIP.jump, 0.12);
+      } else if (state.crouching) {
+        // A real crouch clip. This used to squash the model's Y scale, which
+        // looked like a bug because it was one — the pack HAS a crouch, it just
+        // lives in the animation set nobody had loaded.
+        moving
+          ? this._play(CLIP.sneak, 0.2, Math.max(0.7, Math.min(1.8, this._speed / 1.6)))
+          : this._play(CLIP.crouch, 0.22);
       } else if (this._speed > 5.2) {
-        // Match the cycle to the ground speed so the feet do not skate.
-        this._play(CLIP.run, 0.18, Math.max(0.6, Math.min(1.8, this._speed / 6.2)));
-      } else if (this._speed > 0.35) {
-        this._play(CLIP.walk, 0.18, Math.max(0.6, Math.min(1.9, this._speed / 2.6)));
+        const strafe = state.strafe ?? 0;
+        if (strafe > 0.6) this._play(CLIP.strafeR, 0.18, this._speed / 6.2);
+        else if (strafe < -0.6) this._play(CLIP.strafeL, 0.18, this._speed / 6.2);
+        else this._play(CLIP.run, 0.18, Math.max(0.6, Math.min(1.8, this._speed / 6.2)));
+      } else if (moving) {
+        // Backing away plays backwards rather than moonwalking forwards.
+        state.reversing
+          ? this._play(CLIP.walkBack, 0.2, Math.max(0.6, Math.min(1.7, this._speed / 2.6)))
+          : this._play(CLIP.walk, 0.18, Math.max(0.6, Math.min(1.9, this._speed / 2.6)));
       } else {
         this._play(CLIP.idle, 0.25);
       }
     }
-
-    // Crouching is a squash rather than a clip — the pack has no crouch, and a
-    // squashed idle reads correctly enough from behind at third-person range.
-    const squash = state.crouching ? 0.62 : 1;
-    const cur = this.model.scale.y;
-    const s = cur + (squash - cur) * Math.min(1, dt * 10);
-    this.model.scale.y = s;
 
     this.mixer.update(dt);
   }
