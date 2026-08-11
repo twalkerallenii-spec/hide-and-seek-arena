@@ -581,7 +581,10 @@ export class Room {
       p.alive = true;
       p.x = sp[0]; p.y = sp[1]; p.z = sp[2];
       p.caughtAt = 0;
-      this.broadcast({ type: 'respawn', id: p.id });
+      // Grace period. Without it a seeker loitering at the start area catches
+      // the same hider every three seconds indefinitely.
+      p.safeUntil = now + 6000;
+      this.broadcast({ type: 'respawn', id: p.id, safeFor: 6 });
     }
   }
 
@@ -603,8 +606,13 @@ export class Room {
           this.broadcast({ type: 'joinOpen', seconds: JOIN_WINDOW });
         }
         const windowClosed = this.joinDeadline && now >= this.joinDeadline;
-        const waited = now - this.lobbySince > LOBBY_MAX_WAIT_MS;
-        if (windowClosed || (allReady && players.length >= 2) || waited) {
+        // The window runs its full term once START is pressed. The only early
+        // exit is a full room — nobody else can join, so there is nothing to
+        // wait for. "Everyone here is ready" is NOT an early exit: the whole
+        // point of the window is that people who are not here yet can arrive.
+        const roomFull = players.length >= CAPACITY;
+        const waited = !this.joinDeadline && now - this.lobbySince > LOBBY_MAX_WAIT_MS;
+        if (windowClosed || roomFull || waited) {
           this.joinDeadline = 0;
           this._startRound(waited && !allReady);
         }
@@ -632,7 +640,7 @@ export class Room {
   _startRound(byTimeout) {
     this.secretClaimed = false;
     this.joinDeadline = 0;
-    for (const p of this.parts) { p.wasCaught = false; p.caughtAt = 0; p.lateJoin = false; }
+    for (const p of this.parts) { p.wasCaught = false; p.caughtAt = 0; p.lateJoin = false; p.safeUntil = 0; }
     this.round++;
     this.feed.length = 0;
     this._sizeSpotOwner();
@@ -735,6 +743,7 @@ export class Room {
 
   _catch(seeker, victim) {
     if (!victim.alive) return;
+    if (victim.safeUntil && this.nowMs < victim.safeUntil) return;   // just respawned
     victim.alive = false;
     // `wasCaught` is permanent for the round and drives the seeker's win;
     // `caughtAt` is what the respawn timer counts from.

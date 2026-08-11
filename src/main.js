@@ -22,6 +22,9 @@ import { Lobby } from './ui/lobby.js';
 import { Monster } from './game/monster.js';
 import { makeRNG } from './engine/rng.js';
 import { setAssetRenderer, loadManifest } from './engine/assets.js';
+import { NetClient } from './net/client.js';
+import { Voice } from './net/voice.js';
+import { resolveServerUrl, wakeServer } from './net/config.js';
 
 const $ = (id) => document.getElementById(id);
 const STATE = { BOOT: 'boot', MENU: 'menu', LOADING: 'loading', PLAY: 'play', PAUSE: 'pause', RESULTS: 'results', CREDITS: 'credits' };
@@ -98,6 +101,14 @@ class Game {
     // happen after the Monster exists.
     this.powerups.refs.monster = this.monster;
     this._wireRound();
+
+    // Multiplayer is strictly additive: if the server is asleep, unreachable or
+    // switched off with ?server=off, everything below quietly does nothing and
+    // the game runs its local round against AI.
+    this.net = new NetClient();
+    this.voice = new Voice((m) => this.net.sendRaw?.(m) ?? this.net.send(m.t, m));
+    this._wireNet();
+    wakeServer();
 
     this._wireCallbacks();
     this._wireInput();
@@ -201,6 +212,41 @@ class Game {
     };
   }
 
+  _wireNet() {
+    const net = this.net;
+
+    net.on('status', (st) => {
+      this.online = st === 'connected';
+      if (st === 'connected') this.hud.toast('CONNECTED — MULTIPLAYER', 'gold');
+      if (st === 'error') this.hud.toast('OFFLINE — PLAYING VS AI');
+    });
+
+    // Any voice traffic is consumed by the voice client and goes no further.
+    net.on('message', (msg) => {
+      if (this.voice.handle(msg)) return;
+    });
+
+    // The server is the authority once it is talking to us.
+    net.on('snapshot', (snap) => {
+      try { this.round.applyState(snap); } catch (e) { console.warn('snapshot', e); }
+    });
+    net.on('roster', (r) => { try { this.round.applyState({ participants: r }); } catch { } });
+
+    this.round.on('secret', () => { if (this.online) net.send('secret', {}); });
+  }
+
+  /** Geometry between two points muffles a voice. Used by the voice panner. */
+  _voiceOccluded(a, b) {
+    const oct = this.controller?.octree;
+    if (!oct) return false;
+    const dir = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z);
+    const len = dir.length();
+    if (len < 1) return false;
+    dir.divideScalar(len);
+    const hit = oct.rayIntersect(new THREE.Ray(new THREE.Vector3(a.x, a.y, a.z), dir));
+    return !!hit && hit.distance < len - 0.6;
+  }
+
   _wireInput() {
     const canvas = $('gl');
 
@@ -287,6 +333,12 @@ class Game {
     audio.setVolume('music', save.settings.volMusic);
     audio.setVolume('sfx', save.settings.volSfx);
     this.audioReady = true;
+    // The mic needs the same user gesture the AudioContext does.
+    this.voice.isOccluded = (a, b) => this._voiceOccluded(a, b);
+    this.voice.start(audio.ctx).then(ok => {
+      if (ok && this.voice.micOk) this.hud.toast('MIC LIVE — PROXIMITY VOICE');
+      else if (ok) this.hud.toast('VOICE: LISTEN ONLY (NO MIC)');
+    });
     if (this.state === STATE.MENU) { audio.ambience('void', 0.6); audio.music('menu'); }
   }
 
@@ -469,6 +521,12 @@ class Game {
         p.pos.x = sp[0] + Math.cos(a) * d;
         p.pos.y = sp[1];
         p.pos.z = sp[2] + Math.sin(a) * d;
+      }
+      // Join the room for this arena. Fire and forget — if it never connects,
+      // the local round is already running and nothing waits on it.
+      const url = resolveServerUrl();
+      if (url && this.net.status === 'offline') {
+        this.net.connect(url, { name: save.data.name || 'PLAYER', room: id });
       }
       if (!this.monster.loaded) await this.monster.load();
       this.monster.configure({
@@ -817,6 +875,23 @@ class Game {
         this.seeker.fear = Math.min(100, Math.max(0,
           this.seeker.fear + (pressure > 0.1 ? pressure * 26 : -9) * dt));
       }
+      // Spatial voice: listener at the player's head, each peer at their
+      // character, so a voice arrives from where its owner actually is.
+      if (this.voice.enabled) {
+        const cam = this.renderer.camera;
+        const fwd = new THREE.Vector3();
+        cam.getWorldDirection(fwd);
+        const positions = {};
+        for (const part of this.round.participants) {
+          if (part.isLocal || part.isAI) continue;
+          positions[part.id] = part.pos;
+        }
+        this.voice.update(cam.position, fwd, cam.up, positions);
+      }
+      if (this.net.connected) {
+        this.net.send('pos', { x: +p.x.toFixed(2), y: +p.y.toFixed(2), z: +p.z.toFixed(2), yaw: +c.yaw.toFixed(2) });
+      }
+
       if (this._respawnAt && this.runTime >= this._respawnAt) {
         this._respawnAt = 0;
         this.round.respawn('local');
