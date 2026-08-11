@@ -5,3 +5,4 @@ shots/
 tools/validate-*.txt
 tools/last-smoke.json
 package-lock.json
+/assetwork/
