@@ -63,6 +63,7 @@ export class Menu {
     $('btnCreditSkip').addEventListener('click', () => { audio.ui('back'); this.game.toMenu(); });
 
     this._buildSettings();
+    this._buildModeToggle();
     this._buildMutators();
     this.refresh();
   }
@@ -290,6 +291,33 @@ export class Menu {
       d.title = a.name;
       b.appendChild(d);
     }
+  }
+
+  // ------------------------------------------------------------------- mode
+  /**
+   * Two ways to play the same twelve arenas: the eleven-slot hunt, or solo
+   * exploration with the abstract sweep. The hunt is the default.
+   */
+  _buildModeToggle() {
+    const strip = $('mutatorStrip');
+    const btn = document.createElement('button');
+    btn.className = 'mutator mode';
+    btn.style.cssText = 'border-color:var(--gold-1);color:var(--gold-1);' +
+      'background:rgba(255,215,0,.08);margin-right:10px';
+    const paint = () => {
+      const round = save.settings.mode !== 'solo';
+      btn.textContent = round ? 'MODE · THE HUNT (11)' : 'MODE · SOLO EXPLORE';
+      btn.title = round
+        ? 'Eleven slots, one seeker, ten hiders. Thirty seconds to hide.'
+        : 'No monster. Explore the arena and collect at your own pace.';
+    };
+    btn.addEventListener('click', () => {
+      save.set('mode', save.settings.mode === 'solo' ? 'round' : 'solo');
+      audio.ui('click');
+      paint();
+    });
+    paint();
+    strip.parentNode.insertBefore(btn, strip);
   }
 
   // -------------------------------------------------------------- mutators

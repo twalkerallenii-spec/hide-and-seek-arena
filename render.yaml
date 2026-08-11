@@ -1,0 +1,34 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+#
+# One free Node web service running the authoritative game server.
+# The static client stays on GitHub Pages; only this WebSocket service lives here.
+#
+# After the first deploy, take the service URL (https://<name>.onrender.com) and
+# put its wss:// form into the client (see server/README.md → "Wiring the client").
+
+services:
+  - type: web
+    name: hide-and-seek-arena-server
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: server
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "18.20.4"
+      # Comma-separated extra origins allowed to open a WebSocket.
+      # localhost / 127.0.0.1 on any port are always allowed.
+      - key: ALLOWED_ORIGINS
+        value: "https://twalkerallenii-spec.github.io"
+      # Guard rails for the free tier (512 MB / shared CPU).
+      - key: MAX_ROOMS
+        value: "24"
+      - key: MAX_CONNECTIONS
+        value: "160"
+      - key: MAX_CONNECTIONS_PER_IP
+        value: "8"

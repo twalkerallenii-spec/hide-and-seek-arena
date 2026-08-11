@@ -1,0 +1,19 @@
+{
+  "name": "hide-and-seek-arena-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative multiplayer room server for Hide & Seek — Twelve Arenas.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test-client.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

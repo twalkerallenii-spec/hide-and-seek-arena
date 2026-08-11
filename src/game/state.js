@@ -16,6 +16,7 @@ const DEFAULTS = () => ({
   pups: {},            // arenaId -> true
   arenas: {},          // arenaId -> { visited, coins, coinsMax, best, cleared, time }
   settings: {
+    mode: 'round',        // 'round' = 11 slots + the monster, 'solo' = explore
     quality: 'high',
     sensitivity: 1.0,
     fov: 75,

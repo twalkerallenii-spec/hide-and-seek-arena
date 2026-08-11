@@ -37,9 +37,34 @@ for (const f of files) {
   const src = await readFile(f, 'utf8');
   const rel = f.replace(ROOT, '');
 
-  for (const m of src.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)) usedIds.add([m[1], rel]);
-  for (const m of src.matchAll(/\$\(\s*['"]([^'"]+)['"]\s*\)/g)) usedIds.add([m[1], rel]);
-  for (const m of src.matchAll(/querySelector(?:All)?\(\s*['"]([^'"]+)['"]\s*\)/g)) usedSelectors.add([m[1], rel]);
+  // Ids and classes the file creates itself are its own business — a module
+  // that builds its own DOM (lobby.js) is not required to declare them in
+  // index.html. Collect those first so they can be excluded.
+  const selfMade = new Set();
+  for (const m of src.matchAll(/\.id\s*=\s*['"]([^'"]+)['"]/g)) selfMade.add(m[1]);
+  for (const m of src.matchAll(/\bel\(\s*['"][a-z0-9]+['"]\s*,\s*['"]([^'"]+)['"]/gi)) {
+    for (const c of m[1].split(/\s+/)) selfMade.add(c);
+  }
+  for (const m of src.matchAll(/className\s*=\s*['"]([^'"]+)['"]/g)) {
+    for (const c of m[1].split(/\s+/)) selfMade.add(c);
+  }
+  // A file that injects a <style> block owns whatever classes appear in it.
+  for (const block of src.matchAll(/`([^`]*\{[^`]*\}[^`]*)`/g)) {
+    for (const c of block[1].matchAll(/\.([a-zA-Z][\w-]*)/g)) selfMade.add(c[1]);
+  }
+
+  for (const m of src.matchAll(/getElementById\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+    if (!selfMade.has(m[1])) usedIds.add([m[1], rel]);
+  }
+  for (const m of src.matchAll(/\$\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+    if (!selfMade.has(m[1])) usedIds.add([m[1], rel]);
+  }
+  // Only document-scoped selectors can be checked against index.html; a
+  // selector run against an element the module built is unverifiable here.
+  for (const m of src.matchAll(/document\.querySelector(?:All)?\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+    const bare = m[1].replace(/^[.#]/, '');
+    if (!selfMade.has(bare)) usedSelectors.add([m[1], rel]);
+  }
 }
 
 console.log(`index.html declares ${htmlIds.size} ids; checking ${files.length} JS files\n`);

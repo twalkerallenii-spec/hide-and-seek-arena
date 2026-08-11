@@ -17,6 +17,11 @@ import { Menu } from './ui/menu.js';
 import { MenuScene } from './ui/menuscene.js';
 import { buildCredits } from './ui/credits.js';
 import { loadArena, metaIndex, ARENA_LIST } from './arenas/index.js';
+import { Round, PHASE, ROLE } from './game/round.js';
+import { Lobby } from './ui/lobby.js';
+import { Monster } from './game/monster.js';
+import { makeRNG } from './engine/rng.js';
+import { setAssetRenderer, loadManifest } from './engine/assets.js';
 
 const $ = (id) => document.getElementById(id);
 const STATE = { BOOT: 'boot', MENU: 'menu', LOADING: 'loading', PLAY: 'play', PAUSE: 'pause', RESULTS: 'results', CREDITS: 'credits' };
@@ -82,6 +87,14 @@ class Game {
       pickups: this.pickups,
       baseFearRate: 1,
     });
+    // Round mode: eleven slots, a wheel, thirty seconds, then the monster.
+    setAssetRenderer(this.renderer.gl);
+    loadManifest();
+    this.round = new Round(makeRNG('round-' + Date.now()));
+    this.lobby = new Lobby(this.round, this);
+    this.monster = new Monster(this.world.scene);
+    this._wireRound();
+
     this._wireCallbacks();
     this._wireInput();
     await frame();
@@ -136,6 +149,38 @@ class Game {
 
     this.powerups.onChange = () => {
       this.hud.power(this.powerups.current, this.powerups.activeSummary());
+    };
+  }
+
+  _wireRound() {
+    this.round.on('phase', (phase) => {
+      if (phase === PHASE.HIDE) {
+        // The monster is held at its spawn for the full thirty seconds. If the
+        // player drew SEEKER they are held too — the cage overlay is the tell.
+        this.monster.cage(true);
+        this.controller.frozen = this.round.localIsSeeker;
+        this.hud.hint(this.round.localIsSeeker
+          ? 'YOU ARE THE SEEKER — WAIT'
+          : 'THIRTY SECONDS. GO.', 3);
+      }
+      if (phase === PHASE.HUNT) {
+        this.monster.cage(false);
+        this.controller.frozen = false;
+        this.hud.hint(this.round.localIsSeeker ? 'HUNT THEM' : 'IT IS COMING', 2.5);
+      }
+      if (phase === PHASE.OVER) this._endRound();
+    });
+
+    this.round.on('localCaught', () => {
+      this.spectating = true;
+      this.controller.noclip = true;
+      this.renderer.setDamage(1);
+    });
+
+    this.monster.onCatch = () => {
+      if (this.spectating || this.round.phase !== PHASE.HUNT) return;
+      if (this.round.localIsSeeker) return;   // the player IS the monster
+      this.round.catchParticipant('local', 'THE SEEKER');
     };
   }
 
@@ -377,6 +422,45 @@ class Game {
     this.foundPupThisRun = false;
     this._baseGrade = null;
 
+    // ---- round mode --------------------------------------------------------
+    this.roundMode = save.settings.mode !== 'solo';
+    this.spectating = false;
+    if (this.roundMode) {
+      this.round.rng = makeRNG(`${id}-${Date.now()}`);
+      this.round.configure({
+        arenaId: id,
+        hidingSpots: this.world.hidingSpots,
+        bounds: fullMeta.bounds ?? 100,
+        spawn: sp,
+        localName: (save.data.name || 'YOU').toUpperCase(),
+      });
+      // Scatter the AI hiders around the spawn so they don't start stacked.
+      const rr = makeRNG(id + '-spread');
+      for (const p of this.round.participants) {
+        if (p.isLocal) continue;
+        const a = rr() * Math.PI * 2, d = 4 + rr() * 14;
+        p.pos.x = sp[0] + Math.cos(a) * d;
+        p.pos.y = sp[1];
+        p.pos.z = sp[2] + Math.sin(a) * d;
+      }
+      if (!this.monster.loaded) await this.monster.load();
+      this.monster.configure({
+        octree: this.controller.octree,
+        hidingSpots: this.world.hidingSpots,
+        bounds: fullMeta.bounds ?? 100,
+        difficulty: fullMeta.difficulty ?? 3,
+      });
+      const ma = rr() * Math.PI * 2;
+      this.monster.spawn(sp[0] + Math.cos(ma) * 26, sp[1] + 1, sp[2] + Math.sin(ma) * 26);
+      this.monster.cage(true);
+      if (this.monster.root.parent !== this.world.scene) this.world.scene.add(this.monster.root);
+      this.round.start();
+      this.seeker.enabled = false;      // the abstract sweep steps aside
+    } else {
+      this.seeker.enabled = true;
+      this.monster.root.removeFromParent();
+    }
+
     this.menu.loadProgress(1);
     await sleep(220);
     this.menu.hideLoading();
@@ -473,6 +557,59 @@ class Game {
       save.save();
       setTimeout(() => this.rollCredits(), 2600);
     }
+  }
+
+  /** Round mode's own results screen — survival, not collection. */
+  _endRound() {
+    if (this.state === STATE.RESULTS) return;
+    this.state = STATE.RESULTS;
+    this.controller.enabled = false;
+    this.controller.unlock();
+    this.hud.show(false);
+    this.lobby.showDead(false);
+
+    const r = this.round;
+    const survived = r.local.alive;
+    const asSeeker = r.localIsSeeker;
+    const caught = r.hiders.filter(h => !h.alive).length;
+
+    let mult = 1;
+    for (const m of MUTATORS) if (this.mutatorOn(m.id)) mult *= m.mult;
+    const base = asSeeker
+      ? caught * 60                              // paid per hider brought down
+      : (survived ? 700 : 180) + Math.floor(this.runTime) * 2;
+    const coinBonus = this.pickups.collectedCoins * 6;
+    const pupBonus = this.foundPupThisRun ? 250 : 0;
+    const earned = Math.round((base + coinBonus + pupBonus) * mult);
+
+    save.addCoins(earned);
+    save.addXP(Math.round(earned * 0.6));
+    save.recordRun(this.currentArenaId, {
+      coins: this.pickups.collectedCoins,
+      coinsMax: this.pickups.totalCoins,
+      time: this.runTime,
+      cleared: asSeeker ? caught >= 10 : survived,
+      pup: this.foundPupThisRun,
+    });
+
+    const rows = [
+      { k: 'YOUR ROLE', v: asSeeker ? 'SEEKER' : 'HIDER' },
+      asSeeker
+        ? { k: 'HIDERS CAUGHT', v: `${caught} / 10` }
+        : { k: 'OUTCOME', v: survived ? 'SURVIVED' : 'CAUGHT' },
+      { k: 'TIME', v: fmtTime(this.runTime) },
+      { k: 'SURVIVORS', v: r.aliveHiders.map(h => h.name).join(', ') || 'NONE' },
+    ];
+    if (this.pickups.collectedCoins) rows.push({ k: 'COINS FOUND', v: String(this.pickups.collectedCoins) });
+    if (this.foundPupThisRun) rows.push({ k: 'THE PUP', v: 'FOUND' });
+    if (mult > 1) rows.push({ k: 'MUTATOR BONUS', v: `x${mult.toFixed(2)}` });
+    rows.push({ k: 'COINS EARNED', v: '+' + earned.toLocaleString(), hero: true });
+
+    this.menu.showResults({
+      tag: asSeeker ? 'THE HUNT IS OVER' : (survived ? 'YOU LIVED' : 'YOU WERE CAUGHT'),
+      title: asSeeker ? (caught >= 10 ? 'PERFECT HUNT' : 'HUNT ENDED') : (survived ? 'SURVIVED' : 'CAUGHT'),
+      rows,
+    });
   }
 
   rollCredits() {
@@ -618,6 +755,41 @@ class Game {
     const p = c.position;
     this.pickups.update(playing ? dt : 0, p, this.pickupRadius ?? 1.6);
     this.powerups.update(playing ? dt : 0);
+
+    if (playing && this.roundMode) {
+      const here = new THREE.Vector3(p.x, p.y, p.z);
+      const hSpeed = Math.hypot(c.velocity.x, c.velocity.z);
+      this.round.update(dt);
+      this.lobby.update();
+      // During lobby and wheel the world is already loaded and lit behind the
+      // overlay, which is the whole point — you watch the arena while you wait.
+      const hunting = this.round.phase === PHASE.HUNT;
+      this.monster.update(dt, {
+        target: (hunting && !this.spectating && !this.round.localIsSeeker) ? here : null,
+        crouching: c.crouching,
+        sprinting: c.sprinting,
+        moving: hSpeed > 0.6,
+        lightOn: this.flashlight.on && this.flashlight.spot.intensity > 0.5,
+        canCatch: !this.spectating,
+      });
+      this.hud.tick(dt);
+      this.hud.time(this.runTime);
+      this.hud.meters({ stamina: c.stamina, battery: this.flashlight.battery, fear: this.seeker.fear });
+      this.hud.power(this.powerups.current, this.powerups.activeSummary());
+      this.hud.concealed(this.seeker.concealed(here, c.crouching));
+      this._updateTrail(dt);
+      if (this._aura) this._aura.position.set(p.x, p.y + 1.1, p.z);
+      // Proximity dread: the closer it is, the higher your Fear climbs.
+      if (hunting) {
+        const md = this.monster.position.distanceTo(here);
+        const pressure = Math.max(0, 1 - md / 30);
+        this.seeker.fear = Math.min(100, Math.max(0,
+          this.seeker.fear + (pressure > 0.1 ? pressure * 26 : -9) * dt));
+      }
+      const dmg = Math.max(0, 1 - (this.runTime - (this._lastHit ?? -99)) / 1.2);
+      this.renderer.setDamage(this.spectating ? 0.45 : dmg * 0.8);
+      return;
+    }
 
     if (playing) {
       const hSpeed = Math.hypot(c.velocity.x, c.velocity.z);
