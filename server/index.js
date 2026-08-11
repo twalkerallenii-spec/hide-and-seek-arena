@@ -132,13 +132,75 @@ function health() {
   };
 }
 
+/**
+ * A page for a person, not a machine. Landing here almost always means someone
+ * typed the server's hostname expecting the game, so the first thing it does is
+ * say what this is and point at the game.
+ */
+function statusPage() {
+  const h = health();
+  const up = h.uptimeSec < 90
+    ? `just woke up (${h.uptimeSec}s) — the free tier sleeps when idle`
+    : `up ${Math.floor(h.uptimeSec / 60)} min`;
+  const row = (k, v) => `<tr><th>${k}</th><td>${v}</td></tr>`;
+  return `<!doctype html><meta charset=utf-8>
+<title>Hide &amp; Seek — game server</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+ :root{color-scheme:dark}
+ body{margin:0;min-height:100vh;display:grid;place-items:center;background:#07080b;color:#f2f5fa;
+      font:15px/1.6 ui-sans-serif,system-ui,sans-serif}
+ .card{width:min(560px,90vw);padding:34px;border:1px solid rgba(255,255,255,.1);border-radius:18px;
+       background:rgba(14,17,24,.72)}
+ h1{margin:0 0 4px;font:700 1.5rem/1.1 Bahnschrift,Oswald,Impact,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;transform:skewX(-4deg)}
+ .sub{color:#5d6675;font:600 .62rem/1 ui-monospace,monospace;letter-spacing:.3em;text-transform:uppercase}
+ p{color:#99a2b3}
+ a.play{display:inline-block;margin:18px 0 6px;padding:14px 34px;border-radius:12px;text-decoration:none;
+   font:700 1.05rem/1 Bahnschrift,Oswald,Impact,sans-serif;letter-spacing:.14em;text-transform:uppercase;
+   color:#17130a;background:linear-gradient(150deg,#ffd700,#c5a059);box-shadow:0 6px 0 #6d5620;
+   transform:skewX(-4deg)}
+ table{width:100%;margin-top:22px;border-collapse:collapse;font:.78rem/1.5 ui-monospace,monospace}
+ th{text-align:left;color:#5d6675;font-weight:400;padding:4px 0}
+ td{text-align:right;color:#f2f5fa}
+ code{color:#46e0ff}
+ .ok{color:#45e08a}
+</style>
+<div class=card>
+  <div class=sub>Backend service</div>
+  <h1>Hide &amp; Seek</h1>
+  <p>This is the multiplayer server. It has no interface — it only speaks
+     WebSocket to the game. <strong>The game itself is somewhere else:</strong></p>
+  <a class=play href="https://twalkerallenii-spec.github.io/hide-and-seek-arena/">Play the game</a>
+  <table>
+    ${row('status', '<span class=ok>healthy</span>')}
+    ${row('uptime', up)}
+    ${row('rooms', `${h.rooms} / ${h.maxRooms}`)}
+    ${row('players online', h.humans)}
+    ${row('tick', `${h.tickHz} Hz, ${h.tickMsAvg} ms avg`)}
+    ${row('memory', `${h.rss} MB`)}
+    ${row('websocket', '<code>/ws</code>')}
+    ${row('json health', '<code>/health</code>')}
+  </table>
+</div>`;
+}
+
 const server = http.createServer((req, res) => {
   const origin = req.headers.origin;
   const url = (req.url || '/').split('?')[0];
   if (req.method === 'OPTIONS') { res.writeHead(204, corsHeaders(origin)); res.end(); return; }
   if (req.method !== 'GET') { res.writeHead(405, corsHeaders(origin)); res.end('{"error":"method"}'); return; }
 
-  if (url === '/health' || url === '/healthz' || url === '/') {
+  // `/` is for humans who typed the hostname into a browser. Render's health
+  // check and the game client both want JSON, and they ask for /health.
+  if (url === '/') {
+    // corsHeaders uses 'Content-Type' capitalised; a lowercase key here would
+    // be a second, separate header rather than an override.
+    res.writeHead(200, { ...corsHeaders(origin), 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(statusPage());
+    return;
+  }
+  if (url === '/health' || url === '/healthz') {
     res.writeHead(200, corsHeaders(origin));
     res.end(JSON.stringify(health()));
     return;
