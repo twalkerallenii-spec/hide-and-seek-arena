@@ -36,6 +36,9 @@ const secs = (key, dflt) => {
   return (Number.isFinite(v) && v > 0 ? v : dflt) * 1000;
 };
 export const LOBBY_MAX_WAIT_MS = secs('LOBBY_WAIT_SECONDS', 20);
+// The canonical rule lives with the client so the two can never drift.
+export { JOIN_WINDOW } from '../src/game/round.js';
+import { JOIN_WINDOW } from '../src/game/round.js';
 export const WHEEL_MS = secs('WHEEL_SECONDS', 3);
 export const HIDE_MS = secs('HIDE_SECONDS', 30);
 export const HUNT_MS = secs('HUNT_SECONDS', 180);
@@ -231,7 +234,12 @@ export class Room {
     this.parts.push(p);
     if (this.phase !== 'lobby') {
       // Joined mid-round: wait it out, then take a slot at the next lobby.
-      p.role = 'spectator';
+      // Arriving mid-round drops you in at the start area as a hider, already
+      // marked found so you do not extend the seeker's win condition.
+      p.role = 'hider';
+      p.alive = true;
+      p.wasCaught = true;
+      p.lateJoin = true;
       p.alive = false;
     }
     this.log(`room ${this.code}: ${p.name} (#${p.id}) joined (${this.humanCount} human / ${this.parts.length} total)`);
@@ -532,6 +540,7 @@ export class Room {
     this.tickIndex++;
 
     this._reapStale(now);
+    this._respawnTick(now);
     this._phaseMachine(now);
     updateAI(this, dt);
     if (this.phase === 'hunt') this._catches(dt);
@@ -558,15 +567,47 @@ export class Room {
     }
   }
 
+  /**
+   * Being found is a setback, not an ejection. Three seconds after a catch the
+   * hider is back at the start area and in the round again — but `wasCaught`
+   * stays set, so they no longer hold up the seeker's win condition.
+   */
+  _respawnTick(now) {
+    if (this.phase !== 'hunt') return;
+    const sp = this.spawn || [0, 1, 0];
+    for (const p of this.parts) {
+      if (p.role !== 'hider' || p.alive || !p.caughtAt) continue;
+      if (now - p.caughtAt < 3000) continue;
+      p.alive = true;
+      p.x = sp[0]; p.y = sp[1]; p.z = sp[2];
+      p.caughtAt = 0;
+      this.broadcast({ type: 'respawn', id: p.id });
+    }
+  }
+
   _phaseMachine(now) {
     switch (this.phase) {
       case 'lobby': {
         const humans = this.humanCount;
         if (humans === 0) { this.lobbySince = now; return; }
+        // START opens a fixed 30 s window for other people to arrive, rather
+        // than waiting on everyone to tick ready. Matches JOIN_WINDOW in
+        // src/game/round.js, which is the canonical rule.
         const players = this.parts.filter(p => !p.isAI && p.sock && p.role !== 'spectator');
         const allReady = players.length > 0 && players.every(p => p.ready);
+        // Someone pressing START latches `joinDeadline`; from then on the
+        // round begins when the window closes, regardless of who is ready.
+        const anyStarted = this.parts.some(p => !p.isAI && p.ready);
+        if (anyStarted && !this.joinDeadline) {
+          this.joinDeadline = now + JOIN_WINDOW * 1000;
+          this.broadcast({ type: 'joinOpen', seconds: JOIN_WINDOW });
+        }
+        const windowClosed = this.joinDeadline && now >= this.joinDeadline;
         const waited = now - this.lobbySince > LOBBY_MAX_WAIT_MS;
-        if (allReady || waited) this._startRound(waited && !allReady);
+        if (windowClosed || (allReady && players.length >= 2) || waited) {
+          this.joinDeadline = 0;
+          this._startRound(waited && !allReady);
+        }
         break;
       }
       case 'wheel':
@@ -589,6 +630,9 @@ export class Room {
   }
 
   _startRound(byTimeout) {
+    this.secretClaimed = false;
+    this.joinDeadline = 0;
+    for (const p of this.parts) { p.wasCaught = false; p.caughtAt = 0; p.lateJoin = false; }
     this.round++;
     this.feed.length = 0;
     this._sizeSpotOwner();
@@ -605,7 +649,14 @@ export class Room {
 
     // The wheel: one seeker, ten hiders.
     const seed = (Math.random() * 0x7fffffff) | 0;
-    const idx = Math.floor(Math.random() * this.parts.length);
+    // Only real people can be the seeker. An AI monster is a worse opponent
+    // and a worse story, so the mask goes to a human whenever one is present.
+    const humanIdx = this.parts
+      .map((p, i) => ({ p, i }))
+      .filter(x => !x.p.isAI && x.p.sock)
+      .map(x => x.i);
+    const pool = humanIdx.length ? humanIdx : this.parts.map((_, i) => i);
+    const idx = pool[Math.floor(Math.random() * pool.length)];
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i];
       p.role = i === idx ? 'seeker' : 'hider';
@@ -661,12 +712,34 @@ export class Room {
       if (dx * dx + dz * dz <= r2v && Math.abs(dy) <= CATCH_DY) { this._catch(seeker, h); continue; }
       aliveHiders++;
     }
-    if (aliveHiders === 0) this._endRound('seeker', 'all_caught');
+    // The round ends when every hider has been FOUND ONCE — not when they all
+    // happen to be dead at the same instant, because death is temporary now.
+    const hiders = this.parts.filter(x => x.role === 'hider');
+    const allFoundOnce = hiders.length > 0 && hiders.every(x => x.wasCaught);
+    if (allFoundOnce) this._endRound('seeker', 'all_found');
+  }
+
+  /**
+   * The hidden dog. Only the client can see the pickup collide, so the client
+   * reports it and the server sanity-checks the claim. A cheating client could
+   * fake this; that is a known and accepted hole for now.
+   */
+  claimSecret(p) {
+    if (this.phase !== 'hunt') return false;
+    if (!p || p.role !== 'hider' || this.secretClaimed) return false;
+    this.secretClaimed = true;
+    this.broadcast({ type: 'secret', by: p.name, id: p.id });
+    this._endRound('hiders', 'secret_found');
+    return true;
   }
 
   _catch(seeker, victim) {
     if (!victim.alive) return;
     victim.alive = false;
+    // `wasCaught` is permanent for the round and drives the seeker's win;
+    // `caughtAt` is what the respawn timer counts from.
+    victim.wasCaught = true;
+    victim.caughtAt = this.nowMs;
     victim.survivedMs = this.nowMs - this.phaseStart;
     seeker.catches++;
     releaseSpot(victim, this);

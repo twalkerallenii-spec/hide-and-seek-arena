@@ -134,6 +134,9 @@ export class PowerupSystem {
     this.onChange?.();
   }
 
+  /** The unmodified rate for this arena, so overlapping writers cannot drift. */
+  _fearRateBase() { return this.refs.baseFearRate ?? 1; }
+
   _enableNightVision(on) {
     const { renderer, scene } = this.refs;
     if (on) {
@@ -200,7 +203,9 @@ export class PowerupSystem {
     if (this.doubleJumpAvailable && c) {
       if (c.onGround) { this._wasGround = true; this._airJumpUsed = false; }
       else if (this._wasGround) { this._wasGround = false; }
-      if (!c.onGround && !this._airJumpUsed && c.jumpBuffer > 0) {
+      // jumpBuffer decays every frame, so a mid-air press can be consumed
+      // before this runs. Take it the moment it appears.
+      if (!c.onGround && !this._airJumpUsed && c.jumpBuffer > 0.0001) {
         c.velocity.y = c.jumpSpeed * 0.92;
         c.jumpBuffer = 0;
         this._airJumpUsed = true;

@@ -31,4 +31,4 @@ services:
       - key: MAX_CONNECTIONS
         value: "160"
       - key: MAX_CONNECTIONS_PER_IP
-        value: "8"
+        value: "16"

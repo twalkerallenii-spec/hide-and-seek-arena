@@ -343,85 +343,66 @@ export class Menu {
     const s = save.settings;
 
     /**
-     * Each setting declares its own conversions explicitly.
-     *
-     * The previous version wrote the stored value straight into the slider and
-     * sniffed magnitudes to decide how to format the label. That silently broke
-     * the volumes: `volMaster` is stored as 0.8 but its slider runs 0-100, so it
-     * clamped to 1 and then persisted 0.01 back over the saved setting — the
-     * game muted itself on first load. Never infer a unit from a number.
+     * Each setting declares how it converts between the widget and the model,
+     * and how it prints. The previous version guessed from magnitude, which
+     * meant volMaster (0.8) was written straight into a 0-100 slider, clamped
+     * to 1, and then persisted back as 0.01 — the game muted itself on first
+     * load. Never infer; declare.
      */
     const SETTINGS = [
-      {
-        id: 'setSens', key: 'sensitivity', label: 'setSensVal',
+      { id: 'setSens', key: 'sensitivity', label: 'setSensVal',
         toUi: v => Math.round(v * 100), fromUi: v => v / 100,
-        fmt: v => v.toFixed(2), apply: v => this.game.setSensitivity?.(v),
-      },
-      {
-        id: 'setFov', key: 'fov', label: 'setFovVal',
+        fmt: v => v.toFixed(2), apply: v => this.game.setSensitivity?.(v) },
+      { id: 'setFov', key: 'fov', label: 'setFovVal',
         toUi: v => Math.round(v), fromUi: v => v,
-        fmt: v => String(Math.round(v)), apply: v => this.game.setFov?.(v),
-      },
-      {
-        id: 'setVolMaster', key: 'volMaster', label: 'setVolMasterVal',
+        fmt: v => String(Math.round(v)), apply: v => this.game.setFov?.(v) },
+      { id: 'setVolMaster', key: 'volMaster', label: 'setVolMasterVal',
         toUi: v => Math.round(v * 100), fromUi: v => v / 100,
-        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('master', v),
-      },
-      {
-        id: 'setVolMusic', key: 'volMusic', label: 'setVolMusicVal',
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('master', v) },
+      { id: 'setVolMusic', key: 'volMusic', label: 'setVolMusicVal',
         toUi: v => Math.round(v * 100), fromUi: v => v / 100,
-        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('music', v),
-      },
-      {
-        id: 'setVolSfx', key: 'volSfx', label: 'setVolSfxVal',
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('music', v) },
+      { id: 'setVolSfx', key: 'volSfx', label: 'setVolSfxVal',
         toUi: v => Math.round(v * 100), fromUi: v => v / 100,
-        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('sfx', v),
-      },
-      { id: 'setInvert', key: 'invertY', bool: true, apply: v => this.game.setInvertY?.(v) },
-      { id: 'setGrain', key: 'grain', bool: true, apply: v => this.game.setGrain?.(v) },
+        fmt: v => String(Math.round(v * 100)), apply: v => audio.setVolume('sfx', v) },
+      { id: 'setInvert', key: 'invertY', check: true,
+        apply: v => this.game.setInvertY?.(v) },
+      { id: 'setGrain', key: 'grain', check: true,
+        apply: v => this.game.setGrain?.(v) },
     ];
 
-    for (const def of SETTINGS) {
-      const el = $(def.id);
+    for (const cfg of SETTINGS) {
+      const el = $(cfg.id);
       if (!el) continue;                       // row may not exist in this build
-      const stored = s[def.key];
+      const lab = cfg.label ? $(cfg.label) : null;
 
-      if (def.bool) {
-        el.checked = !!stored;
-        const upd = () => { save.set(def.key, el.checked); def.apply?.(el.checked); };
+      if (cfg.check) {
+        el.checked = !!s[cfg.key];
+        const upd = () => { save.set(cfg.key, el.checked); cfg.apply?.(el.checked); };
         el.addEventListener('change', upd);
-        def.apply?.(!!stored);
+        cfg.apply?.(!!s[cfg.key]);
         continue;
       }
 
-      // Clamp a corrupt save into range rather than letting the browser do it
-      // silently and then writing the clamped value back.
-      const lo = Number(el.min), hi = Number(el.max);
-      let ui = def.toUi(Number.isFinite(stored) ? stored : def.fromUi((lo + hi) / 2));
-      ui = Math.max(lo, Math.min(hi, ui));
+      // Clamp on the way in, so a corrupt save cannot park a slider off-range.
+      const lo = Number(el.min ?? 0), hi = Number(el.max ?? 100);
+      const ui = Math.max(lo, Math.min(hi, cfg.toUi(s[cfg.key])));
       el.value = String(ui);
+      const model = cfg.fromUi(ui);
+      if (model !== s[cfg.key]) save.set(cfg.key, model);   // repair, don't corrupt
+      if (lab) lab.textContent = cfg.fmt(model);
+      cfg.apply?.(model);
 
-      const paint = (model) => {
-        const lbl = def.label && $(def.label);
-        if (lbl) lbl.textContent = def.fmt(model);
-      };
       const upd = () => {
-        const model = def.fromUi(Number(el.value));
-        save.set(def.key, model);
-        paint(model);
-        def.apply?.(model);
+        const v = cfg.fromUi(Number(el.value));
+        save.set(cfg.key, v);
+        if (lab) lab.textContent = cfg.fmt(v);
+        cfg.apply?.(v);
       };
       el.addEventListener('input', upd);
-      el.addEventListener('change', upd);
-
-      // Apply on load WITHOUT writing back, unless the stored value was invalid.
-      const model = def.fromUi(ui);
-      paint(model);
-      def.apply?.(model);
-      if (!Number.isFinite(stored) || Math.abs(model - stored) > 1e-9) save.set(def.key, model);
     }
 
-    // Quality is a <select>, deliberately outside the numeric path above.
+    // GRAPHICS is a <select>, so it stays off the numeric path entirely.
     const q = $('setQuality');
     if (q) {
       const valid = [...q.options].map(o => o.value);

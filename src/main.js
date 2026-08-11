@@ -85,7 +85,6 @@ class Game {
       scene: this.world.scene,
       world: this.world,
       pickups: this.pickups,
-      monster: this.monster,          // ghost/timefreeze/decoy act on this too
       baseFearRate: 1,
     });
     // Round mode: eleven slots, a wheel, thirty seconds, then the monster.
@@ -94,8 +93,11 @@ class Game {
     this.round = new Round(makeRNG('round-' + Date.now()));
     this.lobby = new Lobby(this.round, this);
     this.monster = new Monster(this.world.scene);
+    // Ghost, Stillness and Decoy act on whatever is actually hunting you, which
+    // in round mode is the monster rather than the abstract sweep. This has to
+    // happen after the Monster exists.
+    this.powerups.refs.monster = this.monster;
     this._wireRound();
-
 
     this._wireCallbacks();
     this._wireInput();

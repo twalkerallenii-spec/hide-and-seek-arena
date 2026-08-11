@@ -9,6 +9,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { Room, CAPACITY, TICK_HZ } from './room.js';
+import { handleVoice, voicePeerLeft } from './signal.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const HOST = '0.0.0.0';
@@ -219,6 +220,15 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(data.toString()); } catch { return; }
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
 
+    // Proximity voice rides this same socket rather than opening a second one.
+    if (ws._room && ws._part && handleVoice(ws._room, ws._part, msg)) return;
+
+    // The client is the only thing that can see the dog pickup fire.
+    if (msg.t === 'secret' && ws._room && ws._part) {
+      ws._room.claimSecret(ws._part);
+      return;
+    }
+
     if (!ws._part) {
       if (msg.t !== 'hello') return;
       clearTimeout(ws._helloTimer);
@@ -276,6 +286,8 @@ function attach(ws, room, part, msg) {
 }
 
 function cleanup(ws) {
+  // Tear down this peer's voice connections before anything else.
+  if (ws._room && ws._part) { try { voicePeerLeft(ws._room, ws._part); } catch { /* ignore */ } }
   if (ws._cleaned) return;
   ws._cleaned = true;
   clearTimeout(ws._helloTimer);
