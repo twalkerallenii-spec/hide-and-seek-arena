@@ -6,3 +6,8 @@ tools/validate-*.txt
 tools/last-smoke.json
 package-lock.json
 /assetwork/
+
+# never commit credentials
+*.env
+.env*
+/assetwork/
