@@ -177,6 +177,26 @@ globalThis.fetch = async (url) => {
   return { ok: true, status: 200, json: async () => JSON.parse(b.toString()), arrayBuffer: async () => b.buffer };
 };
 
+// three's loaders go through FileLoader (XHR), not fetch, so without this the
+// authored props and the monster silently fail to load and the emulator would
+// only ever exercise the degraded, asset-free path.
+{
+  const THREE = await import('three');
+  THREE.FileLoader.prototype.load = function (url, onLoad, _p, onError) {
+    try {
+      const rel = String(url).replace(/^file:\/\//, '').replace(/^https?:\/\/[^/]+/, '');
+      const f = join(ROOT, rel.replace(/^.*\/assets\//, 'assets/'));
+      const b = readFileSync(f);
+      onLoad(this.responseType === 'arraybuffer'
+        ? b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
+        : b.toString());
+    } catch (e) { onError?.(e); }
+    return {};
+  };
+  THREE.ImageLoader.prototype.load = function (u, cb) { const i = { width: 1, height: 1, src: u }; cb?.(i); return i; };
+  THREE.TextureLoader.prototype.load = function (u, cb) { const t = new THREE.Texture(); cb?.(t); return t; };
+}
+
 document.pointerLockElement = null;
 for (const el of document.querySelectorAll('canvas')) {
   el.requestPointerLock = () => { document.pointerLockElement = el; };
@@ -346,6 +366,27 @@ for (const id of arenas) {
   if (stuckFor > frames * 0.5) warn(`${id}: player was immobile for ${(stuckFor / 60).toFixed(0)}s — possibly wedged`);
   if (roundMode) note(`phases seen: ${[...phases].join(' -> ')}`);
   if (roundMode && !phases.has('hide')) warn(`${id}: never reached the hide phase in ${seconds}s`);
+
+  // What did the arena actually build? This is the check that props loaded.
+  {
+    let meshes = 0, instanced = 0, instances = 0, lights = 0;
+    const mats = new Set();
+    game.world.root.traverse(o => {
+      if (o.isLight) lights++;
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      meshes++;
+      if (o.isInstancedMesh) { instanced++; instances += o.count; }
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) if (m) mats.add(m.uuid);
+    });
+    note(`scene: ${meshes} meshes (${instanced} instanced holding ${instances}), ${mats.size} materials, ${lights} lights`);
+    if (game.monster?.loaded) {
+      const h = game.monster.height;
+      note(`monster: ${h.toFixed(2)}m visual / ${game.monster.colliderHeight.toFixed(2)}m collider, state=${game.monster.state}`);
+    } else if (roundMode) {
+      warn(`${id}: the monster never loaded`);
+    }
+    note(`hiding spots: ${game.world.hidingSpots.length}, pickups: ${game.pickups.items.length}`);
+  }
 
   // Pause / resume / back to menu must all work.
   key('Escape'); await settle(4);

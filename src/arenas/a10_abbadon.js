@@ -2636,4 +2636,32 @@ export async function build(ctx) {
       }, 150 + k));
     }
   }
+
+  // ===========================================================================
+  // AUTHORED PROPS — a fantasy furniture kit is a near-perfect fit for a gothic
+  // manor: benches, chests, candles and loose books. Kept off the hedge maze
+  // and the lake, and instanced so the draw-call budget survives it.
+  // ===========================================================================
+  const inHouse = (x, z) => x > -34 && x < 34 && z > -67 && z < -24;
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'FURNITURE', count: 26, seed: 'ab-furn',
+    area: (r) => ({ x: r.range(-32, 32), y: r.pick([0, 4.6]), z: r.range(-65, -26) }),
+    accept: (p) => inHouse(p.x, p.z),
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'COVER', count: 20, seed: 'ab-cover',
+    area: (r) => ({ x: r.range(-32, 32), y: r.pick([0, 4.6, -4.6]), z: r.range(-65, -26) }),
+    accept: (p) => inHouse(p.x, p.z),
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'CLUTTER', count: 44, seed: 'ab-clutter', hide: false, collide: false,
+    area: (r) => ({ x: r.range(-32, 32), y: r.pick([0, 4.6, 9.2]), z: r.range(-65, -26) }),
+    accept: (p) => inHouse(p.x, p.z),
+  });
+  await ctx.kits.scatterKit(ctx, {
+    kit: 'LIGHTING', count: 16, seed: 'ab-light', hide: false, collide: false,
+    area: (r) => ({ x: r.range(-30, 30), y: r.pick([0, 4.6]), z: r.range(-64, -28) }),
+    accept: (p) => inHouse(p.x, p.z),
+  });
+
 }
