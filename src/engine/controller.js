@@ -91,15 +91,27 @@ export class FirstPersonController {
     this.speedWalk = 4.4;
     this.speedSprint = 8.1;
     this.speedCrouch = 2.0;
+    /**
+     * Role speed. The Seeker moves at 1.5x a hider, walking and sprinting both,
+     * which is what makes a chase a chase — a hider can break line of sight and
+     * out-turn it, but cannot simply outrun it down a corridor.
+     */
+    this.speedScale = 1;
     this.jumpSpeed = 8.2;
     this.accelGround = 60;
     this.accelAir = 12;
     this.frictionGround = 11;
 
     this.stamina = 1;
-    this.staminaDrain = 0.20;
-    this.staminaRegen = 0.16;
+    // Sprint is a charge you spend, not a button you hold. The bar refills
+    // slowly and only after a pause, so a chase has a rhythm: burn it to break
+    // away, then walk while it comes back and hope you found cover in time.
+    this.staminaDrain = 0.26;      // ~3.8 s of sprint from full
+    this.staminaRegen = 0.085;     // ~12 s to refill
+    this.staminaRegenDelay = 1.4;  // seconds of not-sprinting before it refills
+    this.sprintMinimum = 0.18;     // can't tap-sprint off an empty bar
     this.exhausted = false;
+    this._regenWait = 0;
 
     this.crouching = false;
     this.sprinting = false;
@@ -262,7 +274,11 @@ export class FirstPersonController {
     dt = Math.min(dt, 1 / 30);
 
     const k = this.keys;
-    const wantSprint = (k['ShiftLeft'] || k['ShiftRight']) && !this.crouching && !this.exhausted;
+    // Holding shift with an empty bar does nothing until it has recovered past
+    // `sprintMinimum` — otherwise you stutter in and out of a sprint at zero.
+    const shift = k['ShiftLeft'] || k['ShiftRight'];
+    const wantSprint = shift && !this.crouching && !this.exhausted
+      && this.stamina >= (this.sprinting ? 0.001 : this.sprintMinimum);
     const wantCrouch = k['ControlLeft'] || k['KeyC'];
 
     // --- crouch (with a headroom check before standing up) -------------------
@@ -294,11 +310,16 @@ export class FirstPersonController {
     // --- stamina -------------------------------------------------------------
     if (this.sprinting) {
       this.stamina = Math.max(0, this.stamina - this.staminaDrain * dt);
+      this._regenWait = this.staminaRegenDelay;
       if (this.stamina <= 0) this.exhausted = true;
+    } else if (this._regenWait > 0) {
+      this._regenWait -= dt;          // the pause before the bar starts filling
     } else {
       this.stamina = Math.min(1, this.stamina + this.staminaRegen * dt);
-      if (this.stamina > 0.32) this.exhausted = false;
+      if (this.stamina >= this.sprintMinimum) this.exhausted = false;
     }
+    /** 0..1 for the HUD; distinct from `stamina` so it can show the wait. */
+    this.sprintCharging = !this.sprinting && this._regenWait <= 0 && this.stamina < 1;
 
     // --- noclip / spectator --------------------------------------------------
     if (this.noclip) {
@@ -333,8 +354,9 @@ export class FirstPersonController {
     }
 
     // --- horizontal acceleration --------------------------------------------
-    const maxSpeed = this.crouching ? this.speedCrouch
+    const base = this.crouching ? this.speedCrouch
       : this.sprinting ? this.speedSprint : this.speedWalk;
+    const maxSpeed = base * this.speedScale;
     const accel = this.onGround ? this.accelGround : this.accelAir;
     if (moving) {
       const cur = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);

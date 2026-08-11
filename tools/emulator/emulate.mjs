@@ -387,6 +387,26 @@ for (const id of arenas) {
     }
     note(`hiding spots: ${game.world.hidingSpots.length}, pickups: ${game.pickups.items.length}`);
 
+    // WHICH SCENE IS ACTUALLY BEING RENDERED? A game that plays the menu
+    // backdrop while the HUD says you are in an arena looks like the arena
+    // failed to build, when in fact it built fine and is simply not on screen.
+    const attached = game.renderer.scene;
+    const isWorld = attached === game.world.scene;
+    const isMenu = attached === game.menuScene.scene;
+    note(`renderer attached to: ${isWorld ? 'world.scene' : isMenu ? 'MENU SCENE' : 'unknown'}`);
+    if (!isWorld) bad(`${id}: rendering the ${isMenu ? 'menu backdrop' : 'wrong scene'} during play`);
+    // And is anything in it actually visible?
+    let vis = 0, invis = 0;
+    game.world.root.traverse(o => {
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      let v = o.visible, p = o.parent;
+      while (v && p) { v = p.visible; p = p.parent; }
+      v ? vis++ : invis++;
+    });
+    note(`world meshes visible: ${vis}, hidden: ${invis}`);
+    if (vis === 0) bad(`${id}: every mesh in the world is hidden`);
+    else if (invis > vis * 3) warn(`${id}: ${invis} hidden vs ${vis} visible — culling may be too aggressive`);
+
     if (roundMode) {
       const seeker = game.round.localIsSeeker;
       const tp = game.controller.thirdPerson;

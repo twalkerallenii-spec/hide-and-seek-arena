@@ -663,8 +663,10 @@ export class Room {
       .map((p, i) => ({ p, i }))
       .filter(x => !x.p.isAI && x.p.sock)
       .map(x => x.i);
-    const pool = humanIdx.length ? humanIdx : this.parts.map((_, i) => i);
-    const idx = pool[Math.floor(Math.random() * pool.length)];
+    // No fallback to bots: if there is nobody human to wear the mask, the round
+    // does not start. An AI seeker is explicitly not allowed.
+    if (!humanIdx.length) return false;
+    const idx = humanIdx[Math.floor(Math.random() * humanIdx.length)];
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i];
       p.role = i === idx ? 'seeker' : 'hider';

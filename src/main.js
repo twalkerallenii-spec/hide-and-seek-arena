@@ -21,6 +21,7 @@ import { Round, PHASE, ROLE } from './game/round.js';
 import { Lobby } from './ui/lobby.js';
 import { Monster } from './game/monster.js';
 import { Avatar, CHARACTERS } from './game/avatar.js';
+import { WaitRoom } from './game/waitroom.js';
 import { makeRNG } from './engine/rng.js';
 import { setAssetRenderer, loadManifest } from './engine/assets.js';
 import { ProximityGrid } from './engine/proximity.js';
@@ -106,6 +107,8 @@ class Game {
     this.powerups.refs.monster = this.monster;
     // The hider's own body, seen over their shoulder. The Seeker never needs it.
     this.avatar = new Avatar(this.world.scene, CHARACTERS[0]);
+    // Somewhere for the Seeker to be during the hide phase. See waitroom.js.
+    this.waitRoom = new WaitRoom(this.world.scene);
     this._wireRound();
 
     // Multiplayer is strictly additive: if the server is asleep, unreachable or
@@ -187,14 +190,28 @@ class Game {
         // The monster is held at its spawn for the full thirty seconds. If the
         // player drew SEEKER they are held too — the cage overlay is the tell.
         this.monster.cage(true);
-        this.controller.frozen = this.round.localIsSeeker;
-        this.hud.hint(this.round.localIsSeeker
-          ? 'YOU ARE THE SEEKER — WAIT'
-          : 'THIRTY SECONDS. GO.', 3);
+        if (this.round.localIsSeeker) {
+          // A real room rather than a frozen camera: from in here you cannot
+          // watch where anyone runs, which is the whole point of a hide phase.
+          const spot = this.waitRoom.enter();
+          this.controller.teleport(spot.x, spot.y, spot.z);
+          this.controller.frozen = false;   // free to walk around in there
+          this.hud.hint('YOU ARE THE SEEKER — HOLD', 3);
+        } else {
+          this.controller.frozen = false;
+          this.hud.hint('THIRTY SECONDS. GO.', 3);
+        }
       }
       if (phase === PHASE.HUNT) {
         this.monster.cage(false);
         this.controller.frozen = false;
+        if (this.round.localIsSeeker) {
+          // Released: out of the holding cell and into the arena.
+          const sp = this.currentMeta?.spawn ?? [0, 1, 0];
+          this.waitRoom.leave();
+          this.controller.teleport(sp[0], sp[1], sp[2]);
+          this.renderer.setDamage(0);
+        }
         this.hud.hint(this.round.localIsSeeker ? 'HUNT THEM' : 'IT IS COMING', 2.5);
       }
       if (phase === PHASE.OVER) this._endRound();
@@ -339,6 +356,9 @@ class Game {
   async _applyViewMode() {
     const seeker = this.roundMode && this.round.localIsSeeker;
     this.controller.thirdPerson = this.roundMode && !seeker;
+    // Playing the Seeker means moving like it: 1.5x a hider, walking and
+    // sprinting both. The AI monster derives the same numbers in monster.js.
+    this.controller.speedScale = seeker ? 1.5 : 1;
     this.controller.octree = this.controller.octree;   // boom needs it; already set
 
     if (this.controller.thirdPerson) {
@@ -519,6 +539,7 @@ class Game {
     this.controller.sensitivity = 0.0022 * save.settings.sensitivity;
     this.controller.invertY = save.settings.invertY;
     this.controller.speedSprint = this.mutatorOn('nosprint') ? this.controller.speedWalk : 8.1;
+    this.controller.speedScale = 1;   // set per role at the hide phase
     this.controller.jumpSpeed = this.mutatorOn('featherfoot') ? 10.5 : 8.2;
     this.controller.climbZones = collectClimbZones(this.world.root);
 
@@ -549,6 +570,7 @@ class Game {
     // ---- round mode --------------------------------------------------------
     this.roundMode = save.settings.mode !== 'solo';
     this.spectating = false;
+    this.waitRoom?.leave();
     this.controller.thirdPerson = false;
     this.avatar?.setVisible(false);
     this._respawnAt = 0;
@@ -575,7 +597,12 @@ class Game {
       // the local round is already running and nothing waits on it.
       const url = resolveServerUrl();
       if (url && this.net.status === 'offline') {
-        this.net.connect(url, { name: save.data.name || 'PLAYER', room: id });
+        // Every match is its own room. Previously the room code was the arena
+        // id, so everyone who happened to roll the same map was dropped into
+        // one shared game. A ?room=CODE in the URL still lets friends meet.
+        let room;
+        try { room = new URLSearchParams(location.search).get('room') || undefined; } catch { }
+        this.net.connect(url, { name: save.data.name || 'PLAYER', room });
       }
       this.menu.loadStep('WAKING THE SEEKER');
       await frame();
@@ -872,11 +899,24 @@ class Game {
       const dt = Math.min(this.clock.getDelta(), 0.1);
 
       try {
-        if (this.state === STATE.MENU || this.state === STATE.CREDITS || this.state === STATE.BOOT) {
+        const inMenu = this.state === STATE.MENU || this.state === STATE.CREDITS || this.state === STATE.BOOT;
+        if (inMenu) {
           this.menuScene.update(dt);
         } else {
           this._updatePlay(dt);
         }
+
+        // Guard: the composer holds whichever scene it was last attached to, and
+        // if that ever disagrees with the state we are in, the player gets the
+        // menu backdrop with a live HUD over it — which reads as "the arena
+        // failed to load" when the arena is fine and simply is not on screen.
+        // Cheap to check, impossible to get wrong, and it says so out loud.
+        const want = inMenu ? this.menuScene.scene : this.world.scene;
+        if (this.renderer.scene !== want) {
+          console.warn(`[render] scene out of sync in state "${this.state}" — reattaching`);
+          this.renderer.attach(want);
+        }
+
         this.renderer.render(dt);
       } catch (e) {
         console.error('Frame error:', e);
@@ -907,6 +947,9 @@ class Game {
       const hSpeed = Math.hypot(c.velocity.x, c.velocity.z);
       this.round.update(dt);
       this.lobby.update();
+      if (this.round.phase === PHASE.HIDE && this.round.localIsSeeker) {
+        this.waitRoom.update(dt, this.round.timeLeft);
+      }
       // During lobby and wheel the world is already loaded and lit behind the
       // overlay, which is the whole point — you watch the arena while you wait.
       const hunting = this.round.phase === PHASE.HUNT;
@@ -921,7 +964,10 @@ class Game {
       });
       this.hud.tick(dt);
       this.hud.time(this.runTime);
-      this.hud.meters({ stamina: c.stamina, battery: this.flashlight.battery, fear: this.seeker.fear });
+      this.hud.meters({
+        stamina: c.stamina, battery: this.flashlight.battery, fear: this.seeker.fear,
+        charging: c.sprintCharging, exhausted: c.exhausted,
+      });
       this.hud.power(this.powerups.current, this.powerups.activeSummary());
       this.hud.concealed(this.seeker.concealed(here, c.crouching));
       this._updateTrail(dt);
@@ -1015,9 +1061,8 @@ class Game {
       this.hud.tick(dt);
       this.hud.time(this.runTime);
       this.hud.meters({
-        stamina: c.stamina,
-        battery: this.flashlight.battery,
-        fear: this.seeker.fear,
+        stamina: c.stamina, battery: this.flashlight.battery, fear: this.seeker.fear,
+        charging: c.sprintCharging, exhausted: c.exhausted,
       });
       this.hud.power(this.powerups.current, this.powerups.activeSummary());
       this.hud.drawMinimap({

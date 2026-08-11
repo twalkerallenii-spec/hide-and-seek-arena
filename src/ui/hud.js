@@ -62,11 +62,14 @@ export class HUD {
     this.el.pup.style.color = found ? 'var(--magenta)' : '';
   }
 
-  meters({ stamina, battery, fear }) {
+  meters({ stamina, battery, fear, charging, exhausted }) {
     this.el.stamina.style.width = (stamina * 100).toFixed(1) + '%';
+    // Three readable states: spending it, waiting for it, and empty.
+    this.el.staminaM.classList.toggle('charging', !!charging);
+    this.el.staminaM.classList.toggle('empty', !!exhausted);
     this.el.battery.style.width = (battery * 100).toFixed(1) + '%';
     this.el.fear.style.width = fear.toFixed(1) + '%';
-    this.el.staminaM.classList.toggle('low', stamina < 0.2);
+    this.el.staminaM.classList.toggle('low', stamina < 0.2 && !charging);
     this.el.batteryM.classList.toggle('low', battery < 0.18);
     this.el.fearM.classList.toggle('low', fear > 75);
     this.el.fearVig.style.opacity = fear > 55 ? ((fear - 55) / 45 * 0.85).toFixed(2) : 0;

@@ -628,3 +628,15 @@ h1, h2, h3, .display {
 @media (prefers-reduced-motion: reduce) {
   .load-bar::after, .load-rings .lr, .load-rings .lrp { animation: none; }
 }
+
+
+/* The sprint bar is a resource you spend and rebuild, so it needs to read at a
+   glance: filling, empty, or ready. */
+.meter.stamina.charging .mbar > i {
+  background: linear-gradient(90deg, #1d6ea8, #46e0ff);
+  transition: width .1s linear;
+}
+.meter.stamina.charging label::after { content: ' · CHARGING'; color: var(--cyan); }
+.meter.stamina.empty .mbar > i { background: linear-gradient(90deg, #6b2030, #b03040); }
+.meter.stamina.empty label::after { content: ' · SPENT'; color: var(--red); }
+.meter.stamina.empty .mbar { border-color: rgba(255,77,77,.4); }

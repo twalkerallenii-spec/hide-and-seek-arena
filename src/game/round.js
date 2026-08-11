@@ -189,26 +189,18 @@ export class Round {
    */
   _spinWheel() {
     const n = this.participants.length;
-    // Only real people wear the mask. An AI monster is a worse opponent and a
-    // worse story, so the seeker is always drawn from the humans in the room.
+    // Only real people wear the mask. No AI fallback and no rigging: the wheel
+    // draws uniformly from the humans in the room and that is the whole rule.
+    //
+    // Consequence worth knowing: with one human in the room, that human is the
+    // Seeker every round. That is the honest reading of "AI can't be seeker".
     const humans = this.participants
       .map((p, i) => ({ p, i }))
-      .filter(x => !x.p.isAI);
+      .filter(x => !x.p.isAI)
+      .map(x => x.i);
+    if (!humans.length) return false;          // nothing to draw from
+    const seekerIdx = humans[Math.floor(this.rng() * humans.length)];
 
-    let seekerIdx;
-    if (humans.length >= 2) {
-      seekerIdx = humans[Math.floor(this.rng() * humans.length)].i;
-    } else if (this.roundNumber === 1) {
-      // Solo, first ever round: being hunted teaches the game far better than
-      // hunting does, so nobody's first round puts them behind the mask.
-      seekerIdx = 1 + Math.floor(this.rng() * (n - 1));
-    } else {
-      // Solo after that: alternate, so a single player still sees both sides.
-      seekerIdx = (this.roundNumber % 2 === 0)
-        ? this.participants.findIndex(p => !p.isAI)
-        : 1 + Math.floor(this.rng() * (n - 1));
-      if (seekerIdx < 0) seekerIdx = 0;
-    }
     this.participants.forEach((p, i) => {
       p.role = i === seekerIdx ? ROLE.SEEKER : ROLE.HIDER;
     });

@@ -172,11 +172,25 @@ export class Monster {
     this.octree = octree;
     this.hidingSpots = hidingSpots;
     this.bounds = bounds;
-    // Slower to turn and slower to start than a human, but longer-legged: it
-    // loses ground in corners and takes it back down a corridor.
-    this.speedPatrol = 2.0 + difficulty * 0.16;
-    this.speedHunt = 4.0 + difficulty * 0.40;
+    // Speeds are derived from the player's, not invented: a hider walks 4.4 and
+    // sprints 8.1, and the Seeker is 1.5x both. It patrols below walking pace so
+    // it is escapable while it has not seen you, and once it has, it is faster
+    // than you can run. Slower to turn, though — corners are the way out.
+    const HIDER_WALK = 4.4, HIDER_SPRINT = 8.1, SEEKER_SCALE = 1.5;
+    this.speedPatrol = HIDER_WALK * 0.72;
+    this.speedHunt = HIDER_WALK * SEEKER_SCALE;
+    this.speedCharge = HIDER_SPRINT * SEEKER_SCALE;
     this.turnRate = 2.1;
+
+    // The monster sprints on the same rules the player does: a bar it spends
+    // closing the gap and then has to rebuild.
+    this.stamina = 1;
+    this.staminaDrain = 0.22;
+    this.staminaRegen = 0.09;
+    this.staminaRegenDelay = 1.6;
+    this.sprintMinimum = 0.25;
+    this._regenWait = 0;
+    this.charging = false;
     this.sightRange = 24 + difficulty * 4;
     this.hearRange = 11 + difficulty * 2.2;
   }
@@ -425,6 +439,17 @@ export class Monster {
 
     if (this.state === MSTATE.HUNT && target) {
       const d = here.distanceTo(target);
+      // Spend the bar to close a gap it can see across; walk while it rebuilds.
+      const wantCharge = d > 5 && this.stamina >= (this.charging ? 0.001 : this.sprintMinimum);
+      this.charging = wantCharge;
+      if (wantCharge) {
+        this.stamina = Math.max(0, this.stamina - this.staminaDrain * dt);
+        this._regenWait = this.staminaRegenDelay;
+      } else if (this._regenWait > 0) {
+        this._regenWait -= dt;
+      } else {
+        this.stamina = Math.min(1, this.stamina + this.staminaRegen * dt);
+      }
       if (canCatch && d < 1.9) {
         this.state = MSTATE.ATTACK;
         // Give the player the half-second of "it has me" before the round ends.
@@ -433,8 +458,9 @@ export class Monster {
         audio.play({ type: 'sawtooth', freq: 190, freqEnd: 60, dur: 0.6, gain: 0.22, filter: 1400, q: 3 });
         return;
       }
-      this._steer(target, dt, this.speedHunt);
-      this._setLocomotion(this.speedHunt, true);
+      const spd = this.charging ? this.speedCharge : this.speedHunt;
+      this._steer(target, dt, spd);
+      this._setLocomotion(spd, true);
       return;
     }
 
@@ -454,7 +480,11 @@ export class Monster {
       return;
     }
 
-    // PATROL
+    // PATROL — not chasing, so the bar comes back.
+    this.charging = false;
+    if (this._regenWait > 0) this._regenWait -= dt;
+    else this.stamina = Math.min(1, this.stamina + this.staminaRegen * dt);
+
     if (!this.waypoint || here.distanceTo(this.waypoint) < 2.5) this._pickWaypoint(this.lastKnown);
     if (this.waypoint) {
       this._steer(this.waypoint, dt, this.speedPatrol);
