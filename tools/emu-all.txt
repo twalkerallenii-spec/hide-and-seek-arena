@@ -1,66 +1,122 @@
 [1m
 === BOOT ===[0m
-[90m   · booted in 13762ms, state=boot[0m
+[90m   · booted in 6862ms, state=boot[0m
 [90m   · reached the menu[0m
-[90m   · gl: 34 programs, 26 textures, 3047 calls[0m
+[90m   · gl: 34 programs, 26 textures, 3527 calls[0m
 [1m
 === MENU ===[0m
 [90m   · clicked 4 tabs without error[0m
 [90m   · volMaster survived menu init at 0.8[0m
 [1m
 === PLAY: backrooms ===[0m
-[backrooms] collision meshes: 1
-[90m   · loaded in 33.1s (this box is ~25x slow)[0m
+[backrooms] collision meshes: 2
+[90m   · loaded in 40.3s (this box is ~25x slow)[0m
 [90m   · mode: HUNT (round)[0m
 [90m   · lobby is up[0m
 [90m   · pressed READY[0m
 [90m   · walked 4.4m, lowest y 0.0[0m
 [90m   · phases seen: lobby[0m
-[33m   ! backrooms: never reached the hide phase in 8s[0m
-[90m   · scene: 135 meshes (9 instanced holding 28158), 102 materials, 22 lights[0m
+[33m   ! backrooms: never reached the hide phase in 12s[0m
+[90m   · scene: 156 meshes (29 instanced holding 28216), 122 materials, 22 lights[0m
 [90m   · monster: 2.22m visual / 1.89m collider, state=caged[0m
 [90m   · hiding spots: 27, pickups: 49[0m
+[90m   · role: HIDER — camera first person[0m
 [32m   backrooms: clean[0m
 [1m
 === PLAY: neonmetro ===[0m
 [neonmetro] collision meshes: 429
-[90m   · loaded in 27.4s (this box is ~25x slow)[0m
+[90m   · loaded in 11.4s (this box is ~25x slow)[0m
 [90m   · mode: HUNT (round)[0m
 [90m   · lobby is up[0m
 [90m   · pressed READY[0m
-[90m   · walked 23.2m, lowest y 0.0[0m
-[90m   · phases seen: lobby -> wheel[0m
-[33m   ! neonmetro: never reached the hide phase in 8s[0m
+[90m   · walked 27.8m, lowest y 0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide[0m
 [90m   · scene: 705 meshes (11 instanced holding 3885), 160 materials, 25 lights[0m
 [90m   · monster: 2.22m visual / 1.89m collider, state=caged[0m
 [90m   · hiding spots: 21, pickups: 49[0m
+[90m   · role: SEEKER — camera first person[0m
 [32m   neonmetro: clean[0m
 [1m
 === PLAY: cargoyard ===[0m
-[cargoyard] collision meshes: 11
-[90m   · loaded in 30.5s (this box is ~25x slow)[0m
+[cargoyard] collision meshes: 12
+[90m   · loaded in 13.8s (this box is ~25x slow)[0m
 [90m   · mode: HUNT (round)[0m
 [90m   · lobby is up[0m
 [90m   · pressed READY[0m
 [90m   · walked 11.4m, lowest y -0.0[0m
 [90m   · phases seen: lobby -> wheel -> hide[0m
-[90m   · scene: 287 meshes (15 instanced holding 2600), 125 materials, 12 lights[0m
+[90m   · scene: 296 meshes (23 instanced holding 2705), 134 materials, 12 lights[0m
 [90m   · monster: 3.60m visual / 3.06m collider, state=caged[0m
 [90m   · hiding spots: 24, pickups: 52[0m
+[90m   · role: HIDER — camera third person[0m
+[90m   · avatar: Rogue, visible=true[0m
+[90m   · camera boom: 3.64m from the player[0m
 [32m   cargoyard: clean[0m
 [1m
 === PLAY: undercroft ===[0m
 [undercroft] collision meshes: 491
-[90m   · loaded in 31.1s (this box is ~25x slow)[0m
+[90m   · loaded in 6.4s (this box is ~25x slow)[0m
 [90m   · mode: HUNT (round)[0m
 [90m   · lobby is up[0m
 [90m   · pressed READY[0m
 [90m   · walked 6.3m, lowest y -0.0[0m
-[33m   ! undercroft: player was immobile for 4s — possibly wedged[0m
-[90m   · phases seen: lobby -> wheel -> hide[0m
+[90m   · phases seen: lobby[0m
+[33m   ! undercroft: never reached the hide phase in 12s[0m
 [90m   · scene: 671 meshes (72 instanced holding 7140), 139 materials, 24 lights[0m
 [90m   · monster: 2.22m visual / 1.89m collider, state=caged[0m
 [90m   · hiding spots: 57, pickups: 49[0m
+[90m   · role: HIDER — camera first person[0m
 [32m   undercroft: clean[0m
 [1m
 === PLAY: aqueducts ===[0m
+[aqueducts] collision meshes: 332
+[90m   · loaded in 18.5s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 33.4m, lowest y -0.4[0m
+[90m   · phases seen: lobby -> wheel -> hide[0m
+[90m   · scene: 458 meshes (16 instanced holding 4271), 60 materials, 14 lights[0m
+[90m   · monster: 3.60m visual / 3.06m collider, state=caged[0m
+[90m   · hiding spots: 25, pickups: 52[0m
+[90m   · role: HIDER — camera third person[0m
+[90m   · avatar: Rogue, visible=true[0m
+[90m   · camera boom: 3.64m from the player[0m
+[32m   aqueducts: clean[0m
+[1m
+=== PLAY: frostwatch ===[0m
+[frostwatch] collision meshes: 188
+[90m   · loaded in 63.2s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 4.0m, lowest y -0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide -> hunt[0m
+[90m   · scene: 561 meshes (9 instanced holding 4872), 117 materials, 24 lights[0m
+[90m   · monster: 3.60m visual / 3.06m collider, state=patrol[0m
+[90m   · hiding spots: 24, pickups: 50[0m
+[90m   · role: SEEKER — camera first person[0m
+[32m   frostwatch: clean[0m
+[1m
+=== PLAY: orbital ===[0m
+[orbital] collision meshes: 272
+[90m   · loaded in 14.7s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 36.4m, lowest y -0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide[0m
+[90m   · scene: 570 meshes (11 instanced holding 1954), 149 materials, 24 lights[0m
+[90m   · monster: 3.10m visual / 2.64m collider, state=caged[0m
+[90m   · hiding spots: 22, pickups: 52[0m
+[90m   · role: HIDER — camera third person[0m
+[90m   · avatar: Rogue, visible=true[0m
+[90m   · camera boom: 3.32m from the player[0m
+[32m   orbital: clean[0m
+[1m
+=== PLAY: palisade ===[0m
+[palisade] collision meshes: 2
+[90m   · loaded in 40.4s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m

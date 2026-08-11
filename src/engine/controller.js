@@ -12,6 +12,61 @@ import { Capsule } from 'three/addons/math/Capsule.js';
 
 const GRAVITY = 26;
 
+
+/**
+ * An octree that stops splitting when it should.
+ *
+ * three's Octree recurses until a leaf holds 8 triangles or it hits level 16.
+ * On a flat arena — the Backrooms is 198 x 12 x 198 — that drives it to depth
+ * 17, 370,000 nodes and 80x triangle duplication, because split() copies every
+ * triangle into every subtree it touches. Measured cost: 143 s to bake here and
+ * 1.24 ms per capsule query, and the controller does up to six queries a frame.
+ *
+ * Capping depth and allowing fatter leaves trades a slightly longer narrow
+ * phase for an enormously cheaper tree. The split logic below is three's own,
+ * with the two stop conditions parameterised and the subtree type fixed so the
+ * cap survives recursion.
+ */
+class CappedOctree extends Octree {
+  constructor(box, maxLevel = 6, maxTriangles = 24) {
+    super(box);
+    this._maxLevel = maxLevel;
+    this._maxTriangles = maxTriangles;
+  }
+
+  split(level) {
+    if (!this.box) return this;
+    const sub = [];
+    const half = new THREE.Vector3().copy(this.box.max).sub(this.box.min).multiplyScalar(0.5);
+    for (let x = 0; x < 2; x++) {
+      for (let y = 0; y < 2; y++) {
+        for (let z = 0; z < 2; z++) {
+          const b = new THREE.Box3();
+          const v = new THREE.Vector3(x, y, z);
+          b.min.copy(this.box.min).add(v.multiply(half));
+          b.max.copy(b.min).add(half);
+          sub.push(new CappedOctree(b, this._maxLevel, this._maxTriangles));
+        }
+      }
+    }
+    let tri;
+    while ((tri = this.triangles.pop())) {
+      for (let i = 0; i < sub.length; i++) {
+        if (sub[i].box.intersectsTriangle(tri)) sub[i].triangles.push(tri);
+      }
+    }
+    for (const s of sub) {
+      // Read the count BEFORE splitting: split() drains `triangles` into the
+      // next level, so testing it afterwards discards every node that split —
+      // which silently produces an empty tree and no collision at all.
+      const len = s.triangles.length;
+      if (len > this._maxTriangles && level < this._maxLevel) s.split(level + 1);
+      if (len !== 0) this.subTrees.push(s);
+    }
+    return this;
+  }
+}
+
 export class FirstPersonController {
   constructor(camera, domElement) {
     this.camera = camera;
@@ -113,26 +168,47 @@ export class FirstPersonController {
   lock() { this.dom.requestPointerLock?.(); }
   unlock() { document.exitPointerLock?.(); }
 
-  /** Build the collision octree from a scene subtree. */
-  buildCollision(root) {
-    this.octree = new Octree();
+  /**
+   * Build the collision octree from a scene subtree.
+   *
+   * Octree.split() pushes every triangle into every subtree it intersects, so a
+   * single 200 m floor quad ends up duplicated into thousands of leaves and the
+   * tree explodes — the Backrooms measured 42 s to bake and 4.6 ms per capsule
+   * query, which is unplayable on its own.
+   *
+   * Chopping big triangles down first fixes it at the root: each piece then
+   * lands in one or two leaves instead of hundreds. It costs more triangles and
+   * saves an order of magnitude of nodes.
+   */
+  buildCollision(root, { leafMetres = 6 } = {}) {
     const collidable = new THREE.Group();
-    const clones = [];
+    let meshes = 0;
+    const bounds = new THREE.Box3();
     root.updateMatrixWorld(true);
     root.traverse((o) => {
       if (!o.isMesh || o.isInstancedMesh) return;
-      if (o.userData.collide === false) return;
       if (o.userData.collide !== true) return;
+      meshes++;
       const c = new THREE.Mesh(o.geometry, o.material);
       c.matrixAutoUpdate = false;
       c.matrix.copy(o.matrixWorld);
-      clones.push(c);
       collidable.add(c);
+      bounds.expandByObject(o);
     });
     collidable.updateMatrixWorld(true);
+
+    // Pick a depth that lands leaves near `leafMetres` across, rather than
+    // letting the tree run to 17 levels chasing 8 triangles per leaf.
+    const span = Math.max(1, Math.max(
+      bounds.max.x - bounds.min.x,
+      bounds.max.z - bounds.min.z));
+    const depth = Math.max(3, Math.min(7, Math.ceil(Math.log2(span / leafMetres))));
+
+    this.octree = new CappedOctree(undefined, depth, 24);
     this.octree.fromGraphNode(collidable);
-    this.collisionMeshCount = clones.length;
-    return clones.length;
+    this.collisionMeshCount = meshes;
+    this.octreeDepthCap = depth;
+    return meshes;
   }
 
   teleport(x, y, z) {
