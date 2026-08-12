@@ -136,7 +136,27 @@ export class HUD {
     e.classList.add('go');
   }
 
+  /** Show a live text readout in the corner. Pass null to hide it. */
+  diagnostics(fn) {
+    this._diagFn = fn;
+    if (!this._diagEl) {
+      const el = document.createElement('pre');
+      el.className = 'hud-diag';
+      document.body.appendChild(el);
+      this._diagEl = el;
+    }
+    this._diagEl.style.display = fn ? 'block' : 'none';
+  }
+
   tick(dt) {
+    if (this._diagFn && this._diagEl) {
+      this._diagAcc = (this._diagAcc || 0) + dt;
+      if (this._diagAcc > 0.25) {           // 4 Hz is plenty and costs nothing
+        this._diagAcc = 0;
+        try { this._diagEl.textContent = this._diagFn(); }
+        catch (e) { this._diagEl.textContent = String(e); }
+      }
+    }
     if (this._hintTimer > 0) {
       this._hintTimer -= dt;
       if (this._hintTimer <= 0) this.el.hint.classList.remove('show');

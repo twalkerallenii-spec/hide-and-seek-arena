@@ -330,6 +330,11 @@ class Game {
         case 'KeyR':
           if (e.shiftKey) this.startArena(this.currentArenaId);
           break;
+        case 'F3':
+          e.preventDefault();
+          this._diag = !this._diag;
+          this.hud.diagnostics(this._diag ? () => this._diagText() : null);
+          break;
       }
     });
 
@@ -370,6 +375,35 @@ class Game {
       this.avatar.setVisible(false);
       if (seeker) this.hud.hint('YOU ARE THE MONSTER — FIRST PERSON', 3);
     }
+  }
+
+  /**
+   * What the game thinks is happening, for when the screen disagrees. F3.
+   * This exists because the menu backdrop was reported rendering over a live
+   * HUD and none of the headless tooling could reproduce it — next time, this
+   * says why in one glance.
+   */
+  _diagText() {
+    const c = this.controller, r = this.round;
+    const cam = this.renderer.camera.position;
+    const sceneName = this.renderer.scene === this.world.scene ? 'world'
+      : this.renderer.scene === this.menuScene.scene ? 'MENU' : '?';
+    let meshes = 0, visible = 0;
+    this.world.root.traverse(o => {
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      meshes++;
+      if (o.visible) visible++;
+    });
+    return [
+      `state    ${this.state}${this.roundMode ? ' | round' : ' | solo'}`,
+      `scene    ${sceneName}   arena ${this.currentArenaId || '-'}`,
+      `phase    ${r?.phase || '-'}  role ${r?.local?.role || '-'}  alive ${r?.local?.alive}`,
+      `camera   ${cam.x.toFixed(1)} ${cam.y.toFixed(1)} ${cam.z.toFixed(1)}  ${c.thirdPerson ? '3rd' : '1st'}`,
+      `player   ${c.position.x.toFixed(1)} ${c.position.y.toFixed(1)} ${c.position.z.toFixed(1)}  grounded ${c.onGround}`,
+      `world    ${visible}/${meshes} meshes visible   prox ${this.proximity.shown}/${this.proximity.shown + this.proximity.hidden}`,
+      `monster  ${this.monster?.loaded ? this.monster.state : 'not loaded'}   net ${this.net?.status || '-'}`,
+      `draws    ${this.renderer.gl.info.render.calls}   tris ${(this.renderer.gl.info.render.triangles / 1000).toFixed(0)}k`,
+    ].join('\n');
   }
 
   /** True while a round-mode overlay owns the screen and needs the cursor. */
@@ -915,6 +949,9 @@ class Game {
         if (this.renderer.scene !== want) {
           console.warn(`[render] scene out of sync in state "${this.state}" — reattaching`);
           this.renderer.attach(want);
+          // The menu orbit and the player share one camera, so a stale scene
+          // usually means a stale camera position too. Put it back on the body.
+          if (!inMenu) this.controller.update(0);
         }
 
         this.renderer.render(dt);

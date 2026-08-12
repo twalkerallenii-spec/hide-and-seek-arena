@@ -39,6 +39,7 @@ Requires **WebGL 2** and a desktop browser with pointer lock.
 | `V` | Free camera / noclip — for looking at the arenas |
 | `Shift+R` | Restart arena |
 | `Esc` | Pause |
+| `F3` | Diagnostics overlay — state, scene, camera, draw calls |
 
 ---
 

@@ -640,3 +640,13 @@ h1, h2, h3, .display {
 .meter.stamina.empty .mbar > i { background: linear-gradient(90deg, #6b2030, #b03040); }
 .meter.stamina.empty label::after { content: ' · SPENT'; color: var(--red); }
 .meter.stamina.empty .mbar { border-color: rgba(255,77,77,.4); }
+
+
+/* F3 readout. Deliberately plain and unmissable — a diagnostic, not UI. */
+.hud-diag {
+  position: fixed; left: 26px; bottom: 120px; z-index: 40; display: none;
+  margin: 0; padding: 10px 14px; border-radius: 8px;
+  font: 11px/1.5 ui-monospace, monospace; white-space: pre;
+  color: #9effc0; background: rgba(0,0,0,.78);
+  border: 1px solid rgba(158,255,192,.3); pointer-events: none;
+}
