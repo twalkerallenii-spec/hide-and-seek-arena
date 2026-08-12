@@ -109,6 +109,8 @@ class Game {
     this.avatar = new Avatar(this.world.scene, CHARACTERS[0]);
     // Somewhere for the Seeker to be during the hide phase. See waitroom.js.
     this.waitRoom = new WaitRoom(this.world.scene);
+    /** id -> Avatar for everyone who is not the local player. */
+    this.crowd = new Map();
     this._wireRound();
 
     // Multiplayer is strictly additive: if the server is asleep, unreachable or
@@ -184,6 +186,7 @@ class Game {
         // the Seeker is the monster and plays first person; hiders play over
         // the shoulder and get a visible body.
         this._applyViewMode();
+        this._buildCrowd();
         // Hide phase is the first moment the player controls their character,
         // so this is where the pointer gets captured.
         if (this.state === STATE.PLAY) this.controller.lock();
@@ -203,7 +206,12 @@ class Game {
         }
       }
       if (phase === PHASE.HUNT) {
-        this.monster.cage(false);
+        // The player IS the monster when they drew Seeker, so the AI one stands
+        // down entirely — two monsters in one arena reads as a bug.
+        const playerIsIt = this.round.localIsSeeker;
+        this.monster.root.visible = !playerIsIt;
+        this.monster.enabled = !playerIsIt;
+        this.monster.cage(playerIsIt);
         this.controller.frozen = false;
         if (this.round.localIsSeeker) {
           // Released: out of the holding cell and into the arena.
@@ -406,6 +414,98 @@ class Game {
     ].join('\n');
   }
 
+  /**
+   * Give every other participant a body.
+   *
+   * Without this the AI hiders are invisible: they walk to hiding spots as bare
+   * coordinates, which is fine when you are one of them and only the monster
+   * matters, and useless the moment you are the one doing the hunting. Ten
+   * skinned characters at ~7.5k triangles each is a fair price for a game about
+   * finding people.
+   */
+  async _buildCrowd() {
+    const wanted = this.round.participants.filter(p => !p.isLocal);
+    let i = 0;
+    for (const p of wanted) {
+      if (this.crowd.has(p.id)) continue;
+      const which = CHARACTERS[i++ % CHARACTERS.length];
+      const av = new Avatar(this.world.scene, which);
+      this.crowd.set(p.id, av);
+      av.load();            // deliberately not awaited: they pop in as they land
+    }
+    for (const [id, av] of this.crowd) {
+      if (!this.round.participants.some(p => p.id === id)) { av.dispose(); this.crowd.delete(id); }
+    }
+  }
+
+  _updateCrowd(dt) {
+    for (const p of this.round.participants) {
+      if (p.isLocal) continue;
+      const av = this.crowd.get(p.id);
+      if (!av?.loaded) continue;
+      const prev = av._prevPos || (av._prevPos = { x: p.pos.x, y: p.pos.y, z: p.pos.z });
+      const dx = p.pos.x - prev.x, dz = p.pos.z - prev.z;
+      const speed = dt > 0 ? Math.hypot(dx, dz) / dt : 0;
+      const yaw = (Math.abs(dx) + Math.abs(dz)) > 1e-4
+        ? Math.atan2(dx, dz) : (av._yaw ?? 0);
+      prev.x = p.pos.x; prev.y = p.pos.y; prev.z = p.pos.z;
+      av.update(dt, p.pos, yaw, { speed, onGround: true, crouching: !p.alive });
+      av.setDead(!p.alive);
+      av.setVisible(true);
+    }
+  }
+
+  _clearCrowd() {
+    for (const av of this.crowd.values()) av.dispose();
+    this.crowd.clear();
+  }
+
+  /**
+   * Catching, when the player is the one hunting. Reach, a facing check so you
+   * have to actually look at them, and line of sight so you cannot grab someone
+   * through a wall.
+   */
+  _seekerCatch(dt, here) {
+    this._catchCd = Math.max(0, (this._catchCd || 0) - dt);
+    if (this._catchCd > 0) return;
+
+    const cam = this.renderer.camera;
+    const fwd = new THREE.Vector3();
+    cam.getWorldDirection(fwd);
+    fwd.y = 0; fwd.normalize();
+
+    for (const p of this.round.participants) {
+      if (p.isLocal || !p.alive || p.role !== ROLE.HIDER) continue;
+      const dx = p.pos.x - here.x, dy = p.pos.y - here.y, dz = p.pos.z - here.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > 2.6) continue;
+      const flat = new THREE.Vector3(dx, 0, dz);
+      if (flat.lengthSq() > 1e-6 && fwd.dot(flat.normalize()) < 0.25) continue;
+      if (!this._hasSight(here, p.pos)) continue;
+
+      this.round.catchParticipant(p.id, this.round.local.name);
+      this.crowd.get(p.id)?.setDead(true);
+      this._catchCd = 0.8;
+      this.hud.toast(`CAUGHT ${p.name}`, 'red');
+      this.renderer.setDamage(0.5);
+      audio.play({ type: 'sawtooth', freq: 220, freqEnd: 70, dur: 0.5, gain: 0.2, filter: 1500, q: 3 });
+      this.monster?.oneShotEat?.();
+      break;                                   // one at a time; it should feel deliberate
+    }
+  }
+
+  _hasSight(from, to) {
+    const oct = this.controller?.octree;
+    if (!oct) return true;
+    const a = new THREE.Vector3(from.x, from.y + 1.2, from.z);
+    const dir = new THREE.Vector3(to.x - a.x, (to.y + 1.0) - a.y, to.z - a.z);
+    const len = dir.length();
+    if (len < 0.5) return true;
+    dir.divideScalar(len);
+    const hit = oct.rayIntersect(new THREE.Ray(a, dir));
+    return !hit || hit.distance > len - 0.4;
+  }
+
   /** True while a round-mode overlay owns the screen and needs the cursor. */
   _overlayPhase() {
     const p = this.round?.phase;
@@ -604,6 +704,7 @@ class Game {
     // ---- round mode --------------------------------------------------------
     this.roundMode = save.settings.mode !== 'solo';
     this.spectating = false;
+    this._clearCrowd();
     this.waitRoom?.leave();
     this.controller.thirdPerson = false;
     this.avatar?.setVisible(false);
@@ -1016,6 +1117,11 @@ class Game {
         this.seeker.fear = Math.min(100, Math.max(0,
           this.seeker.fear + (pressure > 0.1 ? pressure * 26 : -9) * dt));
       }
+      this._updateCrowd(dt);
+      if (hunting && this.round.localIsSeeker && !this.spectating) {
+        this._seekerCatch(dt, here);
+      }
+
       // The player's own body, when they can see it.
       if (this.controller.thirdPerson && this.avatar.loaded) {
         // Which way the body is travelling relative to its facing, so backing

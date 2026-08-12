@@ -101,6 +101,7 @@ export class Monster {
     this.onFootfall = null;   // (intensity 0..1) — camera shake hook
 
     // Driven by the power-up system; see src/game/powerups.js.
+    this.enabled = true;      // stood down when a player is the Seeker
     this.paused = false;      // STILLNESS
     this.ghosted = false;     // GHOST
     this.decoy = null;        // DECOY beacon position, or null
@@ -351,7 +352,7 @@ export class Monster {
 
   // -------------------------------------------------------------------- tick
   update(dt, ctxIn = {}) {
-    if (!this.loaded) return;
+    if (!this.loaded || !this.enabled) return;
     dt = Math.min(dt, 1 / 20);
     const { target, crouching, sprinting, moving, lightOn, canCatch = true } = ctxIn;
 
@@ -570,6 +571,12 @@ export class Monster {
         this.onFootfall?.(near);
       }
     }
+  }
+
+  /** Play the bite on demand — used when a human Seeker makes the catch. */
+  oneShotEat() {
+    if (!this.loaded) return;
+    this._play(CLIP.eat, 0.08, 1.0);
   }
 
   dispose() {

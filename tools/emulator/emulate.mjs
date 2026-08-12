@@ -408,6 +408,12 @@ for (const id of arenas) {
     else if (invis > vis * 3) warn(`${id}: ${invis} hidden vs ${vis} visible — culling may be too aggressive`);
 
     if (roundMode) {
+      // Bodies for everyone else. Without them a seeker is hunting coordinates.
+      const bodies = [...(game.crowd?.values() || [])].filter(a => a.loaded).length;
+      note(`crowd: ${bodies}/${game.crowd?.size ?? 0} avatars loaded`);
+      if ((game.crowd?.size ?? 0) === 0) bad(`${id}: no bodies for the other participants`);
+      else if (bodies === 0) warn(`${id}: crowd created but none finished loading`);
+
       const seeker = game.round.localIsSeeker;
       const tp = game.controller.thirdPerson;
       note(`role: ${seeker ? 'SEEKER' : 'HIDER'} — camera ${tp ? 'third person' : 'first person'}`);
@@ -415,6 +421,13 @@ for (const id of arenas) {
       if (!seeker && !tp && game.round.phase !== 'lobby' && game.round.phase !== 'wheel') {
         bad(`${id}: a hider should play THIRD person`);
       }
+      // Playing the Seeker has to be winnable: prove a catch is reachable.
+      if (seeker && game.round.phase === 'hunt') {
+        const alive = game.round.aliveHiders.length;
+        note(`as seeker: ${alive} hiders still out, ${game.round.killFeed.length} caught`);
+        if (game.monster?.enabled) bad(`${id}: the AI monster is still running while the player is the Seeker`);
+      }
+
       if (tp) {
         if (!game.avatar?.loaded) bad(`${id}: third person but the avatar never loaded`);
         else {
