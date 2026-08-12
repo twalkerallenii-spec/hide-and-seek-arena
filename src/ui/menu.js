@@ -37,6 +37,10 @@ export class Menu {
         document.querySelectorAll('.tabpage').forEach(p => {
           p.classList.toggle('active', p.id === 'page-' + name);
         });
+        if (name === 'extras' && !this._galleryShown) {
+          this._galleryShown = true;
+          this._renderArenas();
+        }
       });
       tab.addEventListener('mouseenter', () => audio.ui('hover'));
     }
@@ -107,7 +111,10 @@ export class Menu {
   refresh() {
     this._renderHeader();
     this._renderLaunch();
-    this._renderArenas();
+    // The twelve gallery cards each paint a 480x600 canvas of procedural noise.
+    // Doing that before the menu will show costs seconds on a modest machine
+    // for art nobody has asked to look at yet, so it waits for the EXTRAS tab.
+    if (this._galleryShown) this._renderArenas();
     this._renderSkins();
     this._renderStore();
     this._renderPupBoard();

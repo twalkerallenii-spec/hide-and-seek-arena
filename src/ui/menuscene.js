@@ -52,13 +52,19 @@ export class MenuScene {
 
     for (let i = 0; i < 26; i++) {
       const w = rng.range(2.5, 9), h = rng.range(0.4, 1.4), d = rng.range(2.5, 9);
-      const m = mat.surface(rng.pick(surfaces), {
-        color: palettes[i % palettes.length],
-        repeat: Math.max(1, Math.round(w / 3)),
-        size: 256,
-        seed: i,
-        roughness: rng.range(0.4, 0.95),
-      });
+      // These are background shards a few metres across, seen from thirty
+      // metres away in a dark room. A full procedural PBR set each — three
+      // canvases plus a Sobel pass, 26 times — was seconds of boot for detail
+      // nobody can resolve. Six shared textures give the same read.
+      const m = i < 6
+        ? mat.surface(surfaces[i % surfaces.length], {
+            color: palettes[i % palettes.length], repeat: 2, size: 128, seed: i,
+          })
+        : mat.solid({
+            color: palettes[i % palettes.length],
+            roughness: rng.range(0.45, 0.9),
+            metalness: i % 3 === 0 ? 0.5 : 0.05,
+          });
       const shard = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
       const a = (i / 26) * Math.PI * 2 + rng.range(-0.3, 0.3);
       const r = rng.range(9, 30);

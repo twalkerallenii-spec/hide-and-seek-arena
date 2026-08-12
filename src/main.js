@@ -20,7 +20,7 @@ import { loadArena, metaIndex, ARENA_LIST } from './arenas/index.js';
 import { Round, PHASE, ROLE } from './game/round.js';
 import { Lobby } from './ui/lobby.js';
 import { Monster } from './game/monster.js';
-import { Avatar, CHARACTERS } from './game/avatar.js';
+import { Avatar, CHARACTERS, CROWD_VARIETY, preloadAvatars } from './game/avatar.js';
 import { WaitRoom } from './game/waitroom.js';
 import { makeRNG } from './engine/rng.js';
 import { setAssetRenderer, loadManifest } from './engine/assets.js';
@@ -428,7 +428,7 @@ class Game {
     let i = 0;
     for (const p of wanted) {
       if (this.crowd.has(p.id)) continue;
-      const which = CHARACTERS[i++ % CHARACTERS.length];
+      const which = CHARACTERS[i++ % CROWD_VARIETY];
       const av = new Avatar(this.world.scene, which);
       this.crowd.set(p.id, av);
       av.load();            // deliberately not awaited: they pop in as they land
@@ -742,6 +742,10 @@ class Game {
       this.menu.loadStep('WAKING THE SEEKER');
       await frame();
       if (!this.monster.loaded) await this.monster.load();
+      // Bodies for the other ten, fetched here rather than at the hide phase —
+      // otherwise the round starts by stalling on several megabytes of model.
+      this.menu.loadStep('GATHERING PLAYERS');
+      await preloadAvatars(CROWD_VARIETY);
       // An arena can declare its tightest ceiling; otherwise infer from biome.
       // The monster scales to fit under it, so it never clips the roof.
       const ceiling = fullMeta.ceiling ?? (

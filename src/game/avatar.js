@@ -31,7 +31,16 @@ const CLIP = {
   pickup: 'PickUp',
 };
 
-/** The roster, in the order slots are handed out. */
+/**
+ * The roster.
+ *
+ * Only the first few are used for the crowd. Each distinct name is a separate
+ * GLB fetch and parse, so ten different characters meant ten downloads at the
+ * exact moment the round starts. Three read as a varied crowd at hiding
+ * distance and cost a third of the load.
+ */
+export const CROWD_VARIETY = 3;
+
 export const CHARACTERS = [
   'Rogue', 'Rogue_Hooded', 'Knight', 'Mage', 'Barbarian', 'Ranger',
   'Skeleton_Rogue', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Minion',
@@ -55,6 +64,17 @@ async function loadClips() {
   ];
   clipCache = new Map(all.map(c => [c.name, c]));
   return clipCache;
+}
+
+/**
+ * Fetch and parse everything the crowd needs, once, ahead of time. Called from
+ * the arena loading screen so it is paid for behind the progress bar instead of
+ * stalling the first second of a round.
+ */
+export async function preloadAvatars(variety = CROWD_VARIETY) {
+  const names = CHARACTERS.slice(0, variety);
+  await Promise.all([loadClips(), ...names.map(n => character(n))]);
+  return names;
 }
 
 export class Avatar {

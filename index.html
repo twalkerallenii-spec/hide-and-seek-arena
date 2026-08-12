@@ -8,11 +8,13 @@
 <meta name="theme-color" content="#07080b" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔦</text></svg>" />
 <link rel="stylesheet" href="./styles/ui.css" />
+<link rel="modulepreload" href="./vendor/three/build/three.module.js" />
+<link rel="modulepreload" href="./src/main.js" />
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
   }
 }
 </script>

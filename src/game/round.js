@@ -189,20 +189,13 @@ export class Round {
    */
   _spinWheel() {
     const n = this.participants.length;
-    // Only real people wear the mask. No AI fallback and no rigging: the wheel
-    // draws uniformly from the humans in the room and that is the whole rule.
-    //
-    // Consequence worth knowing: with one human in the room, that human is the
-    // Seeker every round. That is the honest reading of "AI can't be seeker".
-    const humans = this.participants
-      .map((p, i) => ({ p, i }))
-      .filter(x => !x.p.isAI)
-      .map(x => x.i);
-    if (!humans.length) return false;          // nothing to draw from
-    const seekerIdx = humans[Math.floor(this.rng() * humans.length)];
+    // True randomness: every slot is eligible, human or AI. Restricting the
+    // draw to humans made it fair-looking but not actually random, and in a
+    // one-human room it was not a draw at all.
+    const seekerIdx = Math.floor(this.rng() * n);
 
-    this.participants.forEach((p, i) => {
-      p.role = i === seekerIdx ? ROLE.SEEKER : ROLE.HIDER;
+    this.participants.forEach((p, idx) => {
+      p.role = idx === seekerIdx ? ROLE.SEEKER : ROLE.HIDER;
     });
     this.wheelResult = {
       seekerIdx,

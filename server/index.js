@@ -214,7 +214,7 @@ const MIME = {
 };
 
 /** Only these are reachable. Everything else on disk stays private. */
-const SERVE_DIRS = new Set(['src', 'styles', 'assets', 'docs']);
+const SERVE_DIRS = new Set(['src', 'styles', 'assets', 'docs', 'vendor']);
 const SERVE_FILES = new Set(['/index.html', '/favicon.ico', '/README.md']);
 
 function serveStatic(url, res) {
@@ -238,7 +238,7 @@ function serveStatic(url, res) {
 
   // Assets change only when the repo does, so they cache hard. HTML and source
   // must not, or a deploy would never reach anyone already holding them.
-  const immutable = top === 'assets';
+  const immutable = top === 'assets' || top === 'vendor';
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(full).toLowerCase()] || 'application/octet-stream',
     'Content-Length': data.length,

@@ -409,10 +409,12 @@ for (const id of arenas) {
 
     if (roundMode) {
       // Bodies for everyone else. Without them a seeker is hunting coordinates.
+      // The crowd is built at the hide phase, so only assert once we got there.
       const bodies = [...(game.crowd?.values() || [])].filter(a => a.loaded).length;
-      note(`crowd: ${bodies}/${game.crowd?.size ?? 0} avatars loaded`);
-      if ((game.crowd?.size ?? 0) === 0) bad(`${id}: no bodies for the other participants`);
-      else if (bodies === 0) warn(`${id}: crowd created but none finished loading`);
+      const reachedHide = game.round.phase !== 'lobby' && game.round.phase !== 'wheel';
+      note(`crowd: ${bodies}/${game.crowd?.size ?? 0} avatars loaded${reachedHide ? '' : ' (pre-hide)'}`);
+      if (reachedHide && (game.crowd?.size ?? 0) === 0) bad(`${id}: no bodies for the other participants`);
+      else if (reachedHide && bodies === 0) warn(`${id}: crowd created but none finished loading`);
 
       const seeker = game.round.localIsSeeker;
       const tp = game.controller.thirdPerson;

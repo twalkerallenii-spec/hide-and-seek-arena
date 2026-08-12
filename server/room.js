@@ -663,10 +663,8 @@ export class Room {
       .map((p, i) => ({ p, i }))
       .filter(x => !x.p.isAI && x.p.sock)
       .map(x => x.i);
-    // No fallback to bots: if there is nobody human to wear the mask, the round
-    // does not start. An AI seeker is explicitly not allowed.
-    if (!humanIdx.length) return false;
-    const idx = humanIdx[Math.floor(Math.random() * humanIdx.length)];
+    // Every slot is eligible, human or AI — a real draw, not a filtered one.
+    const idx = Math.floor(Math.random() * this.parts.length);
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i];
       p.role = i === idx ? 'seeker' : 'hider';

@@ -94,3 +94,77 @@
 [32m   aqueducts: clean[0m
 [1m
 === PLAY: frostwatch ===[0m
+[frostwatch] collision meshes: 188
+[frostwatch] proximity: 23 buckets over 157 objects (44 always-on)
+[90m   · loaded in 32.9s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 11.8m, lowest y -0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide -> hunt[0m
+[90m   · scene: 561 meshes (9 instanced holding 4872), 117 materials, 24 lights[0m
+[90m   · monster: 3.60m visual / 3.06m collider, state=patrol[0m
+[90m   · hiding spots: 24, pickups: 50[0m
+[90m   · renderer attached to: world.scene[0m
+[90m   · world meshes visible: 399, hidden: 162[0m
+[90m   · role: SEEKER — camera first person[0m
+[32m   frostwatch: clean[0m
+[1m
+=== PLAY: orbital ===[0m
+[orbital] collision meshes: 272
+[orbital] proximity: 23 buckets over 90 objects (50 always-on)
+[90m   · loaded in 69.6s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 14.0m, lowest y -0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide -> hunt[0m
+[90m   · scene: 570 meshes (11 instanced holding 1954), 149 materials, 24 lights[0m
+[90m   · monster: 3.10m visual / 2.64m collider, state=patrol[0m
+[90m   · hiding spots: 22, pickups: 52[0m
+[90m   · renderer attached to: world.scene[0m
+[90m   · world meshes visible: 402, hidden: 168[0m
+[90m   · role: SEEKER — camera first person[0m
+[32m   orbital: clean[0m
+[1m
+=== PLAY: palisade ===[0m
+[palisade] collision meshes: 2
+[palisade] proximity: 13 buckets over 29 objects (60 always-on)
+[90m   · loaded in 54.2s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 844.1m, lowest y 0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide[0m
+[90m   · scene: 401 meshes (49 instanced holding 13211), 200 materials, 25 lights[0m
+[90m   · monster: 2.22m visual / 1.89m collider, state=caged[0m
+[90m   · hiding spots: 60, pickups: 55[0m
+[90m   · renderer attached to: world.scene[0m
+[90m   · world meshes visible: 378, hidden: 23[0m
+[90m   · role: SEEKER — camera first person[0m
+[32m   palisade: clean[0m
+[1m
+=== PLAY: forge ===[0m
+[forge] collision meshes: 415
+[forge] proximity: 18 buckets over 62 objects (54 always-on)
+[90m   · loaded in 7.1s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
+[90m   · walked 15.4m, lowest y -0.0[0m
+[90m   · phases seen: lobby -> wheel -> hide -> hunt[0m
+[90m   · scene: 686 meshes (55 instanced holding 4261), 133 materials, 24 lights[0m
+[90m   · monster: 2.22m visual / 1.89m collider, state=patrol[0m
+[90m   · hiding spots: 39, pickups: 52[0m
+[90m   · renderer attached to: world.scene[0m
+[90m   · world meshes visible: 316, hidden: 370[0m
+[90m   · role: SEEKER — camera first person[0m
+[32m   forge: clean[0m
+[1m
+=== PLAY: abbadon ===[0m
+[abbadon] collision meshes: 1223
+[abbadon] proximity: 16 buckets over 86 objects (35 always-on)
+[90m   · loaded in 8.2s (this box is ~25x slow)[0m
+[90m   · mode: HUNT (round)[0m
+[90m   · lobby is up[0m
+[90m   · pressed READY[0m
