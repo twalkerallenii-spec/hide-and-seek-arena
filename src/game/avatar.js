@@ -103,7 +103,7 @@ export class Avatar {
     const [src, clips] = await Promise.all([character(this.which), loadClips()]);
     if (!src) return false;
 
-    const model = instance(src);
+    const model = instance(src, { castShadow: true });
     normaliseHeight(model, this.height);
     model.traverse(o => {
       if (!o.isMesh && !o.isSkinnedMesh) return;

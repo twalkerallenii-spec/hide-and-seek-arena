@@ -124,7 +124,7 @@ export class Monster {
     const src = await loadMonsterFBX();
     if (!src) { console.warn('monster model unavailable'); return false; }
 
-    const model = instance(src);
+    const model = instance(src, { castShadow: true });
     normaliseHeight(model, this.height);
     model.traverse(o => {
       if (!o.isMesh && !o.isSkinnedMesh) return;

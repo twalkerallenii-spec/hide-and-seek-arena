@@ -88,12 +88,19 @@ function loadFBX(url) {
   return p;
 }
 
-/** Shared post-load fixes: colour space, shadows, anisotropy, no collision. */
+/**
+ * Shared post-load fixes: colour space, shadows, anisotropy, no collision.
+ *
+ * Shadow casting is OFF by default and opted into per placement. Every
+ * shadow-casting object is re-drawn once per shadow light, so a scattered kit
+ * of small clutter can silently triple its own cost for shadows nobody looks
+ * at. Cover-sized props ask for it; a bottle on a shelf does not.
+ */
 function prepare(root) {
   const maxAniso = renderer ? renderer.capabilities.getMaxAnisotropy() : 4;
   root.traverse(o => {
     if (!o.isMesh && !o.isSkinnedMesh) return;
-    o.castShadow = true;
+    o.castShadow = false;
     o.receiveShadow = true;
     o.userData.collide = false;      // authored props are decor unless proxied
     o.frustumCulled = true;
@@ -141,12 +148,13 @@ export function imageTexture(file, repeat = 1) {
  * SkeletonUtils so each copy gets its own bones and can animate independently;
  * everything else is a plain clone that shares geometry and material.
  */
-export function instance(root) {
+export function instance(root, { castShadow = false } = {}) {
   if (!root) return null;
   let skinned = false;
   root.traverse(o => { if (o.isSkinnedMesh) skinned = true; });
   const copy = skinned ? skeletonClone(root) : root.clone(true);
   copy.animations = root.animations || [];
+  if (castShadow) copy.traverse(o => { if (o.isMesh || o.isSkinnedMesh) o.castShadow = true; });
   return copy;
 }
 
@@ -175,7 +183,7 @@ export async function preload(list, onProgress) {
  * @param {THREE.Object3D} root  a loaded prop
  * @param {Array<{position:THREE.Vector3, rotation?:number, scale?:number}>} placements
  */
-export function instancedProp(root, placements) {
+export function instancedProp(root, placements, { castShadow = false } = {}) {
   if (!root || !placements.length) return null;
   const out = new THREE.Group();
   const dummy = new THREE.Object3D();
@@ -188,7 +196,7 @@ export function instancedProp(root, placements) {
 
   for (const part of parts) {
     const im = new THREE.InstancedMesh(part.geometry, part.material, placements.length);
-    im.castShadow = true;
+    im.castShadow = castShadow;
     im.receiveShadow = true;
     im.userData.collide = false;
     // Bake the part's own transform within the prop so multi-part props hold together.

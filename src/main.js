@@ -117,7 +117,7 @@ class Game {
     // switched off with ?server=off, everything below quietly does nothing and
     // the game runs its local round against AI.
     this.net = new NetClient();
-    this.voice = new Voice((m) => this.net.sendRaw?.(m) ?? this.net.send(m.t, m));
+    this.voice = new Voice((m) => this.net.sendRaw(m));
     this._wireNet();
     wakeServer();
 
@@ -1152,6 +1152,13 @@ class Game {
         for (const part of this.round.participants) {
           if (part.isLocal || part.isAI) continue;
           positions[part.id] = part.pos;
+        }
+        const iAmDead = !this.round.local.alive;
+        for (const part of this.round.participants) {
+          if (part.isLocal || part.isAI) continue;
+          // Dead players hear everyone. Living players cannot hear the dead —
+          // otherwise being caught turns you into a spotter for your friends.
+          this.voice.setAudible(part.id, iAmDead || part.alive);
         }
         this.voice.update(cam.position, fwd, cam.up, positions);
       }

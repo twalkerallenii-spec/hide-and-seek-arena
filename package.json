@@ -17,7 +17,8 @@
     "vendor": "node tools/vendor-three.mjs",
     "checkvendor": "node tools/check-vendor.mjs",
     "emulate": "node tools/emulator/emulate.mjs",
-    "checktex": "node tools/check-textures.mjs"
+    "checktex": "node tools/check-textures.mjs",
+    "checkvoice": "node tools/check-voice.mjs"
   },
   "description": "Twelve first-person 3D arenas in the browser. Every texture, mesh and sound generated at runtime.",
   "license": "MIT"

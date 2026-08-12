@@ -6,7 +6,7 @@
 [90m  building frostwatch…[0m[31m HEAVY[0m [1mfrostwatch [0m [90m 1539 calls ( 561+ 978 shadow)    160kt   117mat   26tr   0phys  3S x 326casters  ~26.1ms  ~38fps[0m
        [33m! [0m1539 draw calls — budget ~900
 [90m  building orbital…[0m[33m TIGHT[0m [1morbital    [0m [90m 1182 calls ( 570+ 612 shadow)     85kt   149mat   99tr   0phys  3S x 204casters  ~23.2ms  ~43fps[0m
-[90m  building palisade…[0m[33m TIGHT[0m [1mpalisade   [0m [90m  942 calls ( 340+ 602 shadow)    246kt   182mat   49tr   2phys  2S x 301casters  ~18.9ms  ~53fps[0m
+[90m  building palisade…[0m[33m TIGHT[0m [1mpalisade   [0m [90m 1068 calls ( 382+ 686 shadow)    257kt   182mat   49tr   2phys  2S x 343casters  ~20.4ms  ~49fps[0m
 [90m  building forge…[0m[33m TIGHT[0m [1mforge      [0m [90m  848 calls ( 656+ 192 shadow)    203kt   110mat   20tr   2phys  3S x 64casters  ~18.0ms  ~56fps[0m
 [90m  building abbadon…[0m[31m HEAVY[0m [1mabbadon    [0m [90m 1990 calls (1594+ 396 shadow)    485kt    89mat   88tr   2phys  3S x 132casters  ~33.5ms  ~30fps[0m
        [33m! [0m1990 draw calls — budget ~900
@@ -18,6 +18,6 @@
 [90m  frostwatch  ~38fps   biggest cost: shadow passes[0m
 [90m  orbital     ~43fps   biggest cost: shadow passes[0m
 [90m  neonmetro   ~43fps   biggest cost: draw calls[0m
-[90m  palisade    ~53fps   biggest cost: shadow passes[0m
+[90m  palisade    ~49fps   biggest cost: shadow passes[0m
 [90m
 Estimates only — no GL context here. Treat the ordering as real and the absolute numbers as indicative.[0m

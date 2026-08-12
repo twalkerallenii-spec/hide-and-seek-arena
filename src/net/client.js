@@ -277,6 +277,13 @@ export class NetClient {
    * Generic escape hatch: `send('ready', { ready: true })` or `send({t:'ready'})`.
    * Silently no-ops while offline, which is the whole point.
    */
+  /**
+   * Send a pre-built envelope as-is. Voice signalling needs this: its messages
+   * already carry their own `t` and shape, and round-tripping them through
+   * `send(type, payload)` only works by accident.
+   */
+  sendRaw(obj) { return this._sendRaw(obj); }
+
   send(type, payload) {
     if (typeof type === 'object' && type) return this._sendRaw(type);
     return this._sendRaw({ t: type, ...(payload || {}) });
