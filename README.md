@@ -160,9 +160,10 @@ machine and every reload.
 
 ## Development
 
-There is no build step. The browser loads the ES modules directly and pulls
-three.js from a CDN via an `importmap`, so editing a file and reloading is the
-whole loop.
+There is no build step. The browser loads the ES modules directly and resolves
+three.js through an `importmap` pointing at `vendor/three/`, so editing a file
+and reloading is the whole loop — and there is no external dependency that can
+take the game down by being slow.
 
 The checks below need Node (18+) and `npm install` for a local copy of three.js
 that the headless tooling can import.
