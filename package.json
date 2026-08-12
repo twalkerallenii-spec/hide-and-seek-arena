@@ -16,7 +16,8 @@
     "serve": "python3 -m http.server 8080",
     "vendor": "node tools/vendor-three.mjs",
     "checkvendor": "node tools/check-vendor.mjs",
-    "emulate": "node tools/emulator/emulate.mjs"
+    "emulate": "node tools/emulator/emulate.mjs",
+    "checktex": "node tools/check-textures.mjs"
   },
   "description": "Twelve first-person 3D arenas in the browser. Every texture, mesh and sound generated at runtime.",
   "license": "MIT"

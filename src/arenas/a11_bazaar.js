@@ -304,7 +304,7 @@ export async function build(ctx) {
       c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + l * 0.35, by - l); c.stroke();
       c.beginPath(); c.moveTo(bx, by); c.lineTo(bx + l * 0.35, by + l); c.stroke();
     }
-  }, { transparent: true, alphaTest: 0.4, roughness: 0.9, side: THREE.DoubleSide });
+  }, { transparent: true, alphaTest: 0.4, roughness: 0.9, side: THREE.DoubleSide }).map;
 
   /** Pigeon silhouette. */
   const pigeonTex = M.painted(64, 64, (c, W, H) => {
@@ -316,7 +316,7 @@ export async function build(ctx) {
     c.beginPath(); c.moveTo(26, 30); c.lineTo(12, 12); c.lineTo(34, 26); c.closePath(); c.fill();
     c.fillStyle = '#4a4c52';
     c.beginPath(); c.moveTo(14, 38); c.lineTo(2, 44); c.lineTo(16, 44); c.closePath(); c.fill();
-  }, { transparent: true, alphaTest: 0.4, roughness: 0.9, side: THREE.DoubleSide });
+  }, { transparent: true, alphaTest: 0.4, roughness: 0.9, side: THREE.DoubleSide }).map;
 
   const addMat = (tex, opacity = 1, color = 0xffffff) => new THREE.MeshBasicMaterial({
     map: tex, color, transparent: true, opacity, depthWrite: false,
