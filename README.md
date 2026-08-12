@@ -211,6 +211,8 @@ node tools/measure-props.mjs     # bounds/tris/materials for all 185 props
 node tools/asset-inspect.mjs f   # bounds, bones and clips of any FBX/GLB
 node tools/fps-budget.mjs        # draw calls incl. shadow re-draws, per arena
 node tools/vendor-three.mjs      # re-vendor three after a version bump
+node tools/check-vendor.mjs      # guard: vendor/ matches node_modules, nothing
+                                 # imports a CDN, every addon src/ uses is there
 node tools/render-deploy.mjs     # create/deploy the Render service
 ```
 
