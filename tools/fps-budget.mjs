@@ -106,6 +106,7 @@ function estimate(a) {
       console.log(C.r(`FAIL ${id}: ${String(e.message || e).slice(0, 110)}`));
       continue;
     }
+    const cap = world.shadowCap;
     const ms = estimate(a);
     const fps = 1000 / ms;
     rows.push({ id, ...a, ms, fps });
@@ -126,6 +127,7 @@ function estimate(a) {
     if (a.materials > 400) warn.push(`${a.materials} materials — nothing can batch`);
     if (a.physical > 12) warn.push(`${a.physical} MeshPhysicalMaterial meshes — transmission is a full extra pass`);
     if (a.tris > 1.5e6) warn.push(`${(a.tris / 1e6).toFixed(1)}M triangles`);
+    if (cap?.dropped) console.log(C.d(`       shadow cap: kept ${cap.total - cap.dropped} of ${cap.total} casters`));
     for (const w of warn) console.log('       ' + C.y('! ') + w);
   }
 

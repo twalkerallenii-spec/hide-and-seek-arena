@@ -165,6 +165,40 @@ export class World {
     };
   }
 
+  /**
+   * Cap how many meshes cast shadows.
+   *
+   * Every shadow-casting mesh is re-drawn once per shadow-casting light, so an
+   * arena with 3 shadow lights and 900 casters pays 2,700 draw calls for
+   * shadows before it draws anything you can see. Frostwatch was spending more
+   * on shadow passes than on the visible frame.
+   *
+   * Big things cast; small things stop. A crate's shadow is a smudge on the
+   * floor at play distance, and dropping it is invisible. Keeping the largest
+   * silhouettes means the arena still reads as lit rather than flat.
+   */
+  capShadowCasters(limit = 320) {
+    const casters = [];
+    const box = new THREE.Box3();
+    const size = new THREE.Vector3();
+    this.root.updateMatrixWorld(true);
+    this.root.traverse(o => {
+      if (!o.castShadow) return;
+      if (!o.isMesh && !o.isInstancedMesh) return;
+      box.makeEmpty();
+      try { box.setFromObject(o); } catch { return; }
+      if (box.isEmpty()) return;
+      box.getSize(size);
+      // Rank by silhouette area rather than volume: a long thin girder throws a
+      // shadow worth having, a chunky little crate does not.
+      casters.push({ o, score: Math.max(size.x, size.z) * size.y });
+    });
+    if (casters.length <= limit) return { total: casters.length, dropped: 0 };
+    casters.sort((a, b) => b.score - a.score);
+    for (let i = limit; i < casters.length; i++) casters[i].o.castShadow = false;
+    return { total: casters.length, dropped: casters.length - limit };
+  }
+
   async load(meta, buildFn, quality) {
     this.clear();
     this.meta = meta;
@@ -179,6 +213,9 @@ export class World {
     });
     await buildFn(ctx);
     this.root.updateMatrixWorld(true);
+    // Quality tiers buy their headroom here as well as in the shadow map size.
+    const cap = { low: 120, medium: 240, high: 400, ultra: 600 }[quality] ?? 320;
+    this.shadowCap = this.capShadowCasters(cap);
     return ctx;
   }
 

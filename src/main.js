@@ -629,9 +629,30 @@ class Game {
     // ---- proximity meshing --------------------------------------------------
     this.menu.loadStep('PARTITIONING WORLD');
     await frame();
-    this.proximity.build(this.world.root);
+    // Tune the grid to the arena. A manor with 1,600 discrete meshes wants
+    // tight buckets and a short radius, because you are inside a room and
+    // cannot see the next wing anyway. A 200 m desert town wants the opposite,
+    // or you would watch the far side of the map pop in as you walk.
+    {
+      // Derive the cull radius from the arena's own fog, not from a guess.
+      // Fog is exactly the statement "you cannot see past here", so culling at
+      // that distance is free; culling nearer than it means the player watches
+      // geometry pop in, which is worse than the draw calls it saves.
+      const fog = this.world.scene.fog;
+      let sight = (fullMeta.bounds ?? 100) * 1.6;
+      if (fog?.isFog) sight = fog.far;
+      else if (fog?.isFogExp2) sight = 3 / Math.max(1e-4, fog.density);  // ~95% extinction
+      const radius = Math.max(45, Math.min(240, sight * 1.1));
+
+      let meshCount = 0;
+      this.world.root.traverse(o => { if (o.isMesh || o.isInstancedMesh) meshCount++; });
+      this.proximity.cell = meshCount > 700 ? 16 : 26;
+      this.proximity.radius = radius;
+      this.proximity.build(this.world.root, { maxSpan: meshCount > 700 ? 50 : 70 });
+    }
     const px = this.proximity.stats;
-    console.info(`[${id}] proximity: ${px.buckets} buckets over ${px.objects} objects (${px.always} always-on)`);
+    console.info(`[${id}] proximity: ${px.buckets} buckets over ${px.objects} objects ` +
+      `(${px.always} always-on), cell ${this.proximity.cell}m radius ${this.proximity.radius.toFixed(0)}m`);
 
     // ---- gameplay layers ---------------------------------------------------
     this.menu.loadStep('PLACING PICKUPS');
